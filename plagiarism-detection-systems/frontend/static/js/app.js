@@ -1,360 +1,486 @@
 (() => {
-  "use strict";
+  'use strict';
 
   const state = {
-    submissionA: null,
-    submissionB: null,
+    submissions: { A: null, B: null },
     pollTimer: null,
   };
 
   const el = (id) => document.getElementById(id);
-
-  const dropzoneA = el("dropzoneA");
-  const dropzoneB = el("dropzoneB");
-  const fileA = el("fileA");
-  const fileB = el("fileB");
-  const statusA = el("statusA");
-  const statusB = el("statusB");
-  const compareBtn = el("compareBtn");
-  const compareAllBtn = el("compareAllBtn");
-  const progressPanel = el("progressPanel");
-  const progressFill = el("progressFill");
-  const progressStage = el("progressStage");
-  const historyList = el("historyList");
-  const emptyState = el("emptyState");
-  const resultContent = el("resultContent");
-  const gaugeArc = el("gaugeArc");
-  const finalScoreEl = el("finalScore");
-  const classificationEl = el("classification");
-  const fileNamesEl = el("fileNames");
-  const downloadReport = el("downloadReport");
-  const breakdownEl = el("breakdown");
-  const matchNoteEl = el("matchNote");
-  const diffViewEl = el("diffView");
-
-  const ALGO_LABELS = {
-    rabin_karp: "Rabin\u2013Karp (n-gram overlap)",
-    hashing: "Shingle hashing (Jaccard)",
-    lcs: "Longest common subsequence",
-    edit_distance: "Edit distance",
-    semantic: "Semantic similarity",
+  const elements = {
+    dropzoneA: el('dropzoneA'),
+    dropzoneB: el('dropzoneB'),
+    compareBtn: el('compareBtn'),
+    compareAllBtn: el('compareAllBtn'),
+    progressPanel: el('progressPanel'),
+    progressFill: el('progressFill'),
+    progressStage: el('progressStage'),
+    progressPercent: el('progressPercent'),
+    toastContainer: el('toast'),
+    emptyState: el('emptyState'),
+    resultContent: el('resultContent'),
+    gaugeRing: el('gaugeRing'),
+    finalScore: el('finalScore'),
+    classificationBadge: el('classification'),
+    breakdownContainer: el('breakdown'),
+    matchNote: el('matchNote'),
+    diffSubNote: el('diffSubNote'),
+    diffView: el('diffView'),
+    reportDownload: el('downloadReport'),
   };
 
-  // matches the semicircle path in index.html: M20,110 A90,90 0 0 1 200,110
-  // (radius 90 -> arc length = PI * 90)
-  const GAUGE_CIRCUMFERENCE = 282.743;
+  // Score -> color only drives the gauge/badge tint. The label text itself
+  // always comes from the backend (config.CLASSIFICATION_BANDS), not from
+  // thresholds duplicated here.
+  const COLORS = { low: '#4bbaa6', mid: '#8b8fe8', high: '#e8a33d', veryHigh: '#e2635f' };
+  const scoreColor = (score) =>
+    score > 80 ? COLORS.veryHigh :
+    score > 60 ? COLORS.high :
+    score > 40 ? COLORS.mid :
+    COLORS.low;
 
-  function scoreColor(score) {
-    if (score <= 40) return "var(--mint)";
-    if (score <= 60) return "var(--cyan)";
-    return "var(--coral)";
-  }
+  const ALGO_NAMES = {
+    rabin_karp: 'Rabin–Karp',
+    hashing: 'Hashing',
+    lcs: 'LCS',
+    edit_distance: 'Edit Distance',
+    semantic: 'Semantic Similarity',
+  };
+  const getAlgorithmName = (key) => ALGO_NAMES[key] || key;
+
+  const escapeHtml = (str) =>
+    String(str ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+
+  const showToast = (msg, type = 'ok') => {
+    if (!elements.toastContainer) return;
+    const toast = document.createElement('div');
+    toast.className = `toast ${type}`;
+    toast.innerHTML = `<span>${type === 'error' ? '⚠' : '✓'}</span><span>${escapeHtml(msg)}</span>`;
+    elements.toastContainer.appendChild(toast);
+    toast.style.opacity = 0;
+    requestAnimationFrame(() => { toast.style.opacity = 1; });
+    setTimeout(() => {
+      toast.style.opacity = 0;
+      setTimeout(() => toast.remove(), 300);
+    }, 3200);
+  };
+
+  const setProgress = (stage, percent = null) => {
+    if (!elements.progressPanel) return;
+    elements.progressPanel.hidden = false;
+    if (elements.progressStage) elements.progressStage.textContent = humanizeStage(stage);
+    if (elements.progressPercent) elements.progressPercent.textContent = percent !== null ? `${percent}%` : '';
+    if (elements.progressFill) elements.progressFill.style.width = percent !== null ? `${percent}%` : '0%';
+  };
+
+  const resetProgress = () => {
+    if (elements.progressPanel) elements.progressPanel.hidden = true;
+  };
+
+  // Matches the stage names comparison_service.py actually emits.
+  const humanizeStage = (stage) => {
+    const labels = {
+      queued: 'Queued',
+      extracting: 'Extracting and preprocessing files',
+      running_dsa_algorithms: 'Running Rabin–Karp, hashing, LCS, edit distance',
+      computing_semantic_similarity: 'Computing semantic similarity',
+      scoring: 'Combining hybrid score',
+      comparing: 'Comparing against stored submissions',
+      done: 'Done',
+    };
+    return labels[stage] || stage || 'Working';
+  };
 
   // ---------------------------------------------------------- uploads
 
-  function wireDropzone(zoneEl, inputEl, slot) {
-    inputEl.addEventListener("change", () => {
-      if (inputEl.files[0]) handleUpload(inputEl.files[0], slot, zoneEl);
+  const setupDropzone = (zone, slot) => {
+    const fileInput = el(`file${slot}`);
+    zone.addEventListener('click', (e) => {
+      if (e.target.closest('.file-remove')) return;
+      fileInput.click();
     });
-    ["dragenter", "dragover"].forEach((evt) =>
-      zoneEl.addEventListener(evt, (e) => {
-        e.preventDefault();
-        zoneEl.classList.add("is-dragover");
-      })
-    );
-    ["dragleave", "drop"].forEach((evt) =>
-      zoneEl.addEventListener(evt, (e) => {
-        e.preventDefault();
-        zoneEl.classList.remove("is-dragover");
-      })
-    );
-    zoneEl.addEventListener("drop", (e) => {
-      const file = e.dataTransfer.files[0];
-      if (file) handleUpload(file, slot, zoneEl);
+    zone.addEventListener('dragenter', e => { e.preventDefault(); zone.classList.add('is-dragover'); });
+    zone.addEventListener('dragover', e => { e.preventDefault(); zone.classList.add('is-dragover'); });
+    zone.addEventListener('dragleave', e => { e.preventDefault(); zone.classList.remove('is-dragover'); });
+    zone.addEventListener('drop', e => {
+      e.preventDefault();
+      zone.classList.remove('is-dragover');
+      if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+        handleFileUpload(e.dataTransfer.files[0], slot);
+      }
     });
-  }
+    fileInput?.addEventListener('change', () => {
+      if (fileInput.files && fileInput.files[0]) {
+        handleFileUpload(fileInput.files[0], slot);
+      }
+    });
+  };
 
-  async function handleUpload(file, slot, zoneEl) {
-    const statusEl = slot === "A" ? statusA : statusB;
-    const labelEl = el(slot === "A" ? "labelA" : "labelB");
-    statusEl.textContent = "Uploading\u2026";
-    statusEl.className = "field-status";
-
-    const form = new FormData();
-    form.append("file", file);
-
+  const handleFileUpload = async (file, slot) => {
+    if (!file) return;
+    updateUploadState(slot, 'Uploading…', false);
     try {
-      const res = await fetch("/api/upload", { method: "POST", body: form });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Upload failed.");
-
-      if (slot === "A") state.submissionA = data;
-      else state.submissionB = data;
-
-      zoneEl.classList.add("has-file");
-      labelEl.textContent = data.file_name;
-      statusEl.textContent = `Uploaded \u2022 ${data.file_type} \u2022 ready`;
-      statusEl.className = "field-status is-ok";
+      const formData = new FormData();
+      formData.append('file', file);
+      const response = await fetch('/api/upload', { method: 'POST', body: formData });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Upload failed.');
+      state.submissions[slot] = data;
+      updateUploadState(slot, `Uploaded · ${data.file_type} · ready`, true, data.file_name);
+      showToast(`${data.file_name} is ready for analysis.`);
     } catch (err) {
-      statusEl.textContent = err.message;
-      statusEl.className = "field-status is-error";
+      updateUploadState(slot, err.message || 'Upload failed.', false);
+      showToast(err.message || 'Upload failed.', 'error');
     }
-    updateActionState();
-  }
+    refreshButtons();
+  };
 
-  function updateActionState() {
-    compareBtn.disabled = !(state.submissionA && state.submissionB);
-    compareAllBtn.disabled = !state.submissionA;
-  }
+  const updateUploadState = (slot, message, success, filename = '') => {
+    const zone = elements[`dropzone${slot}`];
+    const statusEl = el(`status${slot}`);
+    const labelEl = el(`label${slot}`);
+    const checkEl = el(`check${slot}`);
+    const metaEl = el(`meta${slot}`);
+    zone?.classList.toggle('is-ok', !!success);
+    if (statusEl) {
+      statusEl.textContent = message;
+      statusEl.className = `field-status ${success ? 'is-ok' : (message ? 'is-error' : '')}`;
+    }
+    if (labelEl) labelEl.textContent = filename || 'Drag & drop your file here';
+    if (checkEl) {
+      checkEl.textContent = success ? '✓' : '○';
+      checkEl.classList.toggle('is-ok', !!success);
+    }
+    if (metaEl) {
+      metaEl.hidden = !success;
+      if (success) {
+        metaEl.innerHTML = `<span class="meta-name">${escapeHtml(filename)}</span><button class="file-remove" aria-label="Replace file">×</button>`;
+        metaEl.querySelector('.file-remove')?.addEventListener('click', (e) => { e.stopPropagation(); resetUpload(slot); });
+      }
+    }
+  };
 
-  wireDropzone(dropzoneA, fileA, "A");
-  wireDropzone(dropzoneB, fileB, "B");
+  const resetUpload = (slot) => {
+    el(`file${slot}`).value = '';
+    state.submissions[slot] = null;
+    updateUploadState(slot, '', false);
+    refreshButtons();
+  };
+
+  const refreshButtons = () => {
+    if (elements.compareBtn) elements.compareBtn.disabled = !(state.submissions.A && state.submissions.B);
+    if (elements.compareAllBtn) elements.compareAllBtn.disabled = !state.submissions.A;
+  };
+
+  setupDropzone(elements.dropzoneA, 'A');
+  setupDropzone(elements.dropzoneB, 'B');
 
   // ---------------------------------------------------------- compare
 
-  compareBtn.addEventListener("click", async () => {
-    if (!state.submissionA || !state.submissionB) return;
-    setBusy(true);
+  const startComparison = async () => {
+    if (!state.submissions.A || !state.submissions.B) {
+      showToast('Please upload both submissions first.', 'error');
+      return;
+    }
+    setProgress('queued', 0);
     try {
-      const res = await fetch("/api/compare", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
+      const res = await fetch('/api/compare', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          submission_id_1: state.submissionA.submission_id,
-          submission_id_2: state.submissionB.submission_id,
+          submission_id_1: state.submissions.A.submission_id,
+          submission_id_2: state.submissions.B.submission_id,
         }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Could not start comparison.");
+      if (!res.ok) throw new Error(data.error || 'Failed to start comparison.');
       pollJob(data.job_id, () => loadResults(data.comparison_id));
     } catch (err) {
-      setBusy(false);
-      alert(err.message);
+      resetProgress();
+      showToast(err.message || 'Comparison failed.', 'error');
     }
-  });
+  };
 
-  compareAllBtn.addEventListener("click", async () => {
-    if (!state.submissionA) return;
-    setBusy(true);
+  const compareAgainstAll = async () => {
+    if (!state.submissions.A) {
+      showToast('Please upload Submission A first.', 'error');
+      return;
+    }
+    setProgress('queued', 0);
     try {
-      const res = await fetch("/api/compare-against-all", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ submission_id: state.submissionA.submission_id }),
+      const res = await fetch('/api/compare-against-all', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ submission_id: state.submissions.A.submission_id }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Could not start comparison.");
+      if (!res.ok) throw new Error(data.error || 'Failed to start collection comparison.');
       pollJob(data.job_id, (job) => {
         const top = job.result && job.result.results && job.result.results[0];
-        if (top) loadResults(top.comparison_id);
-        else setBusy(false);
-        loadHistory();
+        if (top) {
+          loadResults(top.comparison_id);
+        } else {
+          loadHistory();
+          showToast('No other stored submissions to compare against yet.');
+        }
       });
     } catch (err) {
-      setBusy(false);
-      alert(err.message);
+      resetProgress();
+      showToast(err.message || 'Comparison failed.', 'error');
     }
-  });
+  };
 
-  function setBusy(isBusy) {
-    compareBtn.disabled = isBusy || !(state.submissionA && state.submissionB);
-    compareAllBtn.disabled = isBusy || !state.submissionA;
-    progressPanel.hidden = !isBusy;
-    if (!isBusy) {
-      progressFill.style.width = "0%";
-    }
-  }
-
-  function pollJob(jobId, onDone) {
+  const pollJob = (jobId, onDone) => {
     clearInterval(state.pollTimer);
     state.pollTimer = setInterval(async () => {
       try {
         const res = await fetch(`/api/jobs/${jobId}`);
         const job = await res.json();
-        if (!res.ok) throw new Error(job.error || "Job lookup failed.");
-
-        progressFill.style.width = `${job.progress || 0}%`;
-        progressStage.textContent = humanizeStage(job.stage, job.progress);
-
-        if (job.status === "completed") {
+        if (!res.ok) throw new Error(job.error || 'Job status fetch failed.');
+        setProgress(job.stage, job.progress);
+        if (job.status === 'completed') {
           clearInterval(state.pollTimer);
-          setBusy(false);
+          resetProgress();
           onDone(job);
-        } else if (job.status === "failed") {
+        } else if (job.status === 'failed') {
           clearInterval(state.pollTimer);
-          setBusy(false);
-          alert(`Comparison failed: ${job.error || "unknown error"}`);
+          resetProgress();
+          showToast(`Comparison failed: ${job.error || 'unknown error'}`, 'error');
         }
       } catch (err) {
         clearInterval(state.pollTimer);
-        setBusy(false);
-        alert(err.message);
+        resetProgress();
+        showToast('Unable to read analysis status. Please retry.', 'error');
       }
-    }, 700);
-  }
-
-  function humanizeStage(stage, progress) {
-    const labels = {
-      queued: "Queued",
-      extracting: "Extracting and preprocessing files",
-      running_dsa_algorithms: "Running Rabin\u2013Karp, hashing, LCS, edit distance",
-      computing_semantic_similarity: "Computing semantic similarity",
-      scoring: "Combining hybrid score",
-      comparing: "Comparing against stored submissions",
-      done: "Done",
-    };
-    const label = labels[stage] || stage || "Working";
-    return `${label} (${progress || 0}%)`;
-  }
+    }, 650);
+  };
 
   // ---------------------------------------------------------- results
 
-  async function loadResults(comparisonId) {
-    const res = await fetch(`/api/results/${comparisonId}`);
-    const data = await res.json();
-    if (!res.ok) {
-      alert(data.error || "Could not load results.");
-      return;
+  const loadResults = async (comparisonId) => {
+    try {
+      const res = await fetch(`/api/results/${comparisonId}`);
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to load results.');
+
+      if (data.status !== 'completed' || !data.scores) {
+        showToast(
+          data.status === 'failed'
+            ? `That comparison failed: ${data.error || 'unknown error'}`
+            : 'That comparison is still running — check back shortly.',
+          'error'
+        );
+        return;
+      }
+
+      renderResults(data);
+      loadHistory();
+      location.hash = 'resultsSection';
+      showToast('Comparison finished successfully.');
+    } catch (err) {
+      showToast(err.message || 'Failed to load results.', 'error');
     }
-    renderResults(data);
-    loadHistory();
-  }
+  };
 
-  function renderResults(data) {
-    emptyState.hidden = true;
-    resultContent.hidden = false;
+  const renderResults = (data) => {
+    if (elements.emptyState) elements.emptyState.hidden = true;
+    if (elements.resultContent) elements.resultContent.hidden = false;
 
-    const score = (data.scores && data.scores.final_score) || 0;
+    const score = Number(data.scores?.final_score || 0);
     const color = scoreColor(score);
-    const offset = GAUGE_CIRCUMFERENCE * (1 - score / 100);
 
-    // reset then animate on the next frame so the transition always plays,
-    // even if a previous result already left the arc at a similar offset
-    gaugeArc.style.transition = "none";
-    gaugeArc.style.strokeDashoffset = String(GAUGE_CIRCUMFERENCE);
-    gaugeArc.getBoundingClientRect();
-    gaugeArc.style.transition = "";
-    gaugeArc.style.stroke = color;
-    requestAnimationFrame(() => {
-      gaugeArc.style.strokeDashoffset = String(offset);
-    });
+    renderScoreRing(score, color);
 
-    finalScoreEl.textContent = score.toFixed(1);
-    finalScoreEl.style.color = color;
-    classificationEl.textContent = data.classification || "Unclassified";
-    classificationEl.style.color = color;
+    if (elements.finalScore) {
+      elements.finalScore.textContent = `${score.toFixed(1)}%`;
+      elements.finalScore.style.color = color;
+    }
 
-    const n1 = data.submission_1 ? data.submission_1.file_name : "Sample A";
-    const n2 = data.submission_2 ? data.submission_2.file_name : "Sample B";
-    fileNamesEl.textContent = `${n1}  \u2194  ${n2}`;
+    // The classification label always comes from the backend
+    // (config.CLASSIFICATION_BANDS), never recomputed client-side.
+    if (elements.classificationBadge) {
+      elements.classificationBadge.textContent = data.classification || 'Unclassified';
+      elements.classificationBadge.style.backgroundColor = color;
+    }
 
-    downloadReport.hidden = false;
-    downloadReport.href = `/api/report/${data.id}`;
+    const nameA = data.submission_1?.file_name || 'Submission A';
+    const nameB = data.submission_2?.file_name || 'Submission B';
+    if (elements.matchNote) {
+      elements.matchNote.textContent = `${nameA}  vs.  ${nameB}`;
+    }
 
-    renderBreakdown((data.scores && data.scores.breakdown) || {});
+    renderBreakdown(data.scores?.breakdown || {});
     renderDiff(data);
-  }
 
-  function renderBreakdown(breakdown) {
-    breakdownEl.innerHTML = "";
-    Object.entries(breakdown).forEach(([key, value]) => {
-      const row = document.createElement("div");
-      row.className = "breakdown-row";
-      row.innerHTML = `
-        <span class="breakdown-label">${ALGO_LABELS[key] || key}</span>
-        <span class="breakdown-track">
-          <span class="breakdown-fill" style="width:${Math.min(100, value)}%; background:${scoreColor(value)}"></span>
-        </span>
-        <span class="breakdown-value">${value.toFixed(1)}%</span>
-      `;
-      breakdownEl.appendChild(row);
+    if (elements.reportDownload) {
+      elements.reportDownload.href = `/api/report/${data.id}`;
+      elements.reportDownload.hidden = false;
+    }
+  };
+
+  const renderScoreRing = (score, color) => {
+    if (!elements.gaugeRing) return;
+    const radius = 80;
+    const circumference = 2 * Math.PI * radius;
+    const dashOffset = circumference * (1 - Math.max(0, Math.min(100, score)) / 100);
+    elements.gaugeRing.style.stroke = color;
+    elements.gaugeRing.style.strokeDasharray = `${circumference} ${circumference}`;
+    elements.gaugeRing.style.strokeDashoffset = circumference;
+    requestAnimationFrame(() => {
+      elements.gaugeRing.style.strokeDashoffset = dashOffset;
     });
-  }
+  };
 
-  function renderDiff(data) {
-    const lcs = data.matches && data.matches.lcs;
+  const renderBreakdown = (breakdown) => {
+    if (!elements.breakdownContainer) return;
+    elements.breakdownContainer.innerHTML = '';
+    Object.entries(breakdown).forEach(([algo, value]) => {
+      const val = Math.max(0, Math.min(100, Number(value) || 0));
+      const row = document.createElement('div');
+      row.className = 'breakdown-row';
+      row.innerHTML = `
+        <div class="breakdown-header">${getAlgorithmName(algo)}</div>
+        <div class="breakdown-bar"><div class="breakdown-progress" style="width:0%"></div></div>
+        <div class="breakdown-value">${val.toFixed(1)}%</div>
+      `;
+      elements.breakdownContainer.appendChild(row);
+      requestAnimationFrame(() => {
+        row.querySelector('.breakdown-progress').style.width = `${val}%`;
+      });
+    });
+  };
+
+  // /api/results puts the raw token streams under data.diff (rebuilt
+  // server-side from the stored files) and the matched-run spans under
+  // data.matches.lcs — they live in different places on purpose.
+  const renderDiff = (data) => {
     const diff = data.diff;
+    const lcs = data.matches && data.matches.lcs;
+
     if (!diff) {
-      matchNoteEl.textContent = "Matched-section highlighting is not available for this comparison.";
-      diffViewEl.innerHTML = "";
+      if (elements.diffSubNote) {
+        elements.diffSubNote.textContent = 'Matched-section highlighting is not available for this comparison.';
+      }
+      if (elements.diffView) elements.diffView.innerHTML = '';
       return;
     }
 
-    const runsA = (lcs && lcs.matched_runs) || [];
-    matchNoteEl.textContent = lcs && lcs.identifier_normalized
-      ? "Highlighted spans show exact overlap; the score above also accounts for simple variable/function renaming."
-      : "Highlighted spans show tokens that both submissions share, in order.";
+    if (elements.diffSubNote) {
+      elements.diffSubNote.textContent = lcs && lcs.identifier_normalized
+        ? 'Highlighted spans show exact overlap; the score above also accounts for simple variable/function renaming.'
+        : 'Shared tokens are highlighted across both files, in order.';
+    }
 
-    diffViewEl.innerHTML = `
-      <div class="diff-col"><h3>Sample A</h3>${renderTokens(diff.tokens_a, runsA, 0)}</div>
-      <div class="diff-col"><h3>Sample B</h3>${renderTokens(diff.tokens_b, runsA, 2)}</div>
-    `;
-  }
+    const runs = (lcs && lcs.matched_runs) || [];
+    if (elements.diffView) {
+      elements.diffView.innerHTML = `
+        <div class="diff-container">
+          <div class="diff-block">${renderDiffLines(diff.tokens_a, runs, 0)}</div>
+          <div class="diff-block">${renderDiffLines(diff.tokens_b, runs, 2)}</div>
+        </div>`;
+    }
+  };
 
-  function renderTokens(tokens, runs, sideOffset) {
-    // runs: array of [startA, endA, startB, endB]; sideOffset picks the
-    // pair of indices (0,1 for side A, 2,3 for side B).
+  // runs: array of [startA, endA, startB, endB]; sideOffset picks the pair
+  // of indices to read (0,1 for side A, 2,3 for side B).
+  const renderDiffLines = (tokens, runs, sideOffset) => {
     const covered = new Set();
     runs.forEach((run) => {
       for (let i = run[sideOffset]; i <= run[sideOffset + 1]; i++) covered.add(i);
     });
 
-    return tokens
-      .map((tok, i) => {
-        const safe = escapeHtml(tok);
-        return covered.has(i) ? `<mark class="match">${safe}</mark>` : safe;
-      })
-      .join(" ");
-  }
+    const lines = [];
+    let currentLine = { no: 1, tokens: [] };
+    let lineNumber = 1;
+    tokens.forEach((token, index) => {
+      const isMatch = covered.has(index);
+      const parts = String(token).split('\n');
+      parts.forEach((part, pIdx) => {
+        if (pIdx > 0) {
+          lines.push(currentLine);
+          currentLine = { no: ++lineNumber, tokens: [] };
+        }
+        currentLine.tokens.push({ text: part, match: isMatch });
+      });
+    });
+    lines.push(currentLine);
 
-  function escapeHtml(str) {
-    return str
-      .replace(/&/g, "&amp;")
-      .replace(/</g, "&lt;")
-      .replace(/>/g, "&gt;");
-  }
+    return lines.map(line => `
+      <div class="diff-line ${line.tokens.some(t => t.match) ? 'match' : ''}">
+        <span class="line-no">${line.no}</span>
+        <span class="line-code">${line.tokens.map(t => t.match ? `<mark class="match">${escapeHtml(t.text)}</mark>` : escapeHtml(t.text)).join(' ')}</span>
+      </div>`).join('');
+  };
 
   // ---------------------------------------------------------- history
 
-  async function loadHistory() {
-    const res = await fetch("/api/history");
-    const rows = await res.json();
-    if (!res.ok) return;
-
-    if (!rows.length) {
-      historyList.innerHTML = '<li class="history-empty">No comparisons yet.</li>';
-      return;
+  const loadHistory = async () => {
+    const table = el('historyTable');
+    if (!table) return;
+    try {
+      const res = await fetch('/api/history');
+      const rows = await res.json();
+      if (!res.ok || !rows.length) {
+        table.innerHTML = '<tr><td colspan="6" class="empty-state"><b>No history yet</b>Your completed comparisons will appear here.</td></tr>';
+        return;
+      }
+      table.innerHTML = '';
+      rows.forEach(row => {
+        // /api/history already parses `scores` into an object server-side
+        // (see _comparison_public in app.py) — it is not a JSON string here.
+        const score = Number(row.scores?.final_score ?? 0);
+        const hasScore = row.status === 'completed' && row.scores;
+        const color = hasScore ? scoreColor(score) : 'var(--muted-2)';
+        const rowEl = document.createElement('tr');
+        rowEl.className = 'history-row';
+        rowEl.innerHTML = `
+          <td>${new Date(row.created_at).toLocaleString()}</td>
+          <td class="history-files">${escapeHtml(row.file_name_1)}</td>
+          <td class="history-files">${escapeHtml(row.file_name_2)}</td>
+          <td class="history-score" style="color:${color}">${hasScore ? score.toFixed(1) + '%' : row.status}</td>
+          <td>${hasScore ? escapeHtml(row.classification || '—') : '—'}</td>
+          <td>
+            <div class="history-actions">
+              <button class="history-button view">View</button>
+              <button class="history-button delete">Delete</button>
+            </div>
+          </td>`;
+        rowEl.querySelector('.view')?.addEventListener('click', () => {
+          if (row.status === 'completed') loadResults(row.id);
+          else showToast(row.status === 'failed' ? `Comparison failed: ${row.error || 'unknown error'}` : 'Still running — check back shortly.', 'error');
+        });
+        rowEl.querySelector('.delete')?.addEventListener('click', () => deleteHistory(row.id));
+        table.appendChild(rowEl);
+      });
+    } catch {
+      table.innerHTML = '<tr><td colspan="6" class="empty-state"><b>Failed to load history</b></td></tr>';
     }
+  };
 
-    historyList.innerHTML = "";
-    rows.forEach((row) => {
-      const li = document.createElement("li");
-      const score = row.scores ? row.scores.final_score : null;
-      li.innerHTML = `
-        <div class="history-row">
-          <span class="history-files">${escapeHtml(row.file_name_1)} \u2194 ${escapeHtml(row.file_name_2)}</span>
-          <span class="history-score" style="color:${score !== null ? scoreColor(score) : "var(--muted)"}">
-            ${score !== null ? score.toFixed(1) + "%" : row.status}
-          </span>
-          <button class="history-delete" title="Delete" data-id="${row.id}">\u2715</button>
-        </div>
-      `;
-      li.querySelector(".history-row").addEventListener("click", (e) => {
-        if (e.target.closest(".history-delete")) return;
-        if (row.status === "completed") loadResults(row.id);
-      });
-      li.querySelector(".history-delete").addEventListener("click", async (e) => {
-        e.stopPropagation();
-        await fetch(`/api/history/${row.id}`, { method: "DELETE" });
-        loadHistory();
-      });
-      historyList.appendChild(li);
+  const deleteHistory = async (id) => {
+    if (!confirm('Delete this comparison from history?')) return;
+    try {
+      const res = await fetch(`/api/history/${id}`, { method: 'DELETE' });
+      if (!res.ok) throw new Error('Failed to delete.');
+      await loadHistory();
+      showToast('Deleted from history.');
+    } catch (err) {
+      showToast(err.message || 'Deletion failed.', 'error');
+    }
+  };
+
+  // ---------------------------------------------------------- nav + boot
+
+  document.querySelectorAll('.nav-item').forEach(link => {
+    link.addEventListener('click', () => {
+      document.querySelectorAll('.nav-item').forEach(l => l.classList.remove('active'));
+      link.classList.add('active');
     });
-  }
+  });
 
-  el("refreshHistoryBtn").addEventListener("click", loadHistory);
+  elements.compareBtn?.addEventListener('click', startComparison);
+  elements.compareAllBtn?.addEventListener('click', compareAgainstAll);
 
-  // ---------------------------------------------------------- boot
-
+  refreshButtons();
   loadHistory();
 })();
