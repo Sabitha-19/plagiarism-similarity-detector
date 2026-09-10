@@ -1,139 +1,175 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>Collate — submission comparison console</title>
-<link rel="preconnect" href="https://fonts.googleapis.com" />
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-<link
-  href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap"
-  rel="stylesheet"
-/>
-<link rel="stylesheet" href="style.css" />
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CodeMatch — Similarity Analysis</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Public+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
 </head>
 <body>
 
-<header class="site-header">
-  <div class="wrap header-row">
+<div class="shell">
+  <aside class="rail">
     <div class="brand">
-      <span class="brand-mark" aria-hidden="true">&#8767;</span>
+      <div class="brand-mark">
+        <svg viewBox="0 0 24 24" fill="none"><path d="M8 4L3 12L8 20M16 4L21 12L16 20" stroke="#1b1206" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </div>
       <div>
-        <p class="brand-name">Collate</p>
-        <p class="brand-tagline">Compare two submissions and read the similarity signal.</p>
+        <div class="brand-name">CodeMatch</div>
+        <div class="brand-sub">Similarity analysis</div>
       </div>
     </div>
-  </div>
-</header>
 
-<main class="wrap layout">
+    <nav class="nav-items">
+      <a class="nav-item active" href="#uploadSection">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0l-4-4m4 4l4-4M4 17v2a2 2 0 002 2h12a2 2 0 002-2v-2"/></svg>
+        Compare
+      </a>
+      <a class="nav-item" href="#resultsSection">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>
+        Results
+      </a>
+      <a class="nav-item" href="#historySection">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12a9 9 0 109-9M3 12h5M3 12l3-3M3 12l3 3M12 7v5l3 2"/></svg>
+        History
+      </a>
+    </nav>
 
-  <section class="bench" aria-label="Upload and compare">
-
-    <div class="panel">
-      <p class="panel-title">Sample A</p>
-      <div class="dropzone" id="dropzoneA">
-        <input type="file" id="fileA" class="dropzone-input" aria-label="Upload sample A" />
-        <p class="dropzone-label" id="labelA">Drop a file, or click to browse</p>
-        <p class="dropzone-hint">.py .js .java .c .cpp .txt</p>
-      </div>
-      <p class="field-status" id="statusA"></p>
+    <div class="rail-foot">
+      Algorithms: <span class="k mono">Rabin–Karp · Hashing · LCS · Edit&nbsp;distance · Semantic</span>
     </div>
+  </aside>
 
-    <div class="panel">
-      <p class="panel-title">Sample B</p>
-      <div class="dropzone" id="dropzoneB">
-        <input type="file" id="fileB" class="dropzone-input" aria-label="Upload sample B" />
-        <p class="dropzone-label" id="labelB">Drop a file, or click to browse</p>
-        <p class="dropzone-hint">.py .js .java .c .cpp .txt</p>
-      </div>
-      <p class="field-status" id="statusB"></p>
-    </div>
+  <main class="stage">
 
-    <div class="panel">
-      <p class="panel-title">Run comparison</p>
-      <div class="actions">
-        <button class="btn btn-primary" id="compareBtn" disabled>Compare A against B</button>
-        <button class="btn btn-secondary" id="compareAllBtn" disabled>Compare A against every stored sample</button>
+    <section id="uploadSection">
+      <div class="page-head">
+        <h1>Compare two submissions</h1>
+        <p>Upload both files to run a structural and semantic similarity pass across five detection algorithms.</p>
       </div>
+
+      <div class="duel">
+        <div class="dropzone" id="dropzoneA">
+          <div class="dz-top">
+            <span class="dz-slot">SUBMISSION A</span>
+            <span class="dz-check" id="checkA">○</span>
+          </div>
+          <div class="dz-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M14 3H7a2 2 0 00-2 2v14a2 2 0 002 2h10a2 2 0 002-2V9z"/><path d="M14 3v6h6"/></svg>
+          </div>
+          <div class="dz-label" id="labelA">Drag &amp; drop your file here</div>
+          <div class="dz-hint">.txt · .pdf · .docx · .c · .cpp · .py · .java · .js · .html · .css — 10 MB max</div>
+          <div class="field-status" id="statusA"></div>
+          <div class="dz-meta" id="metaA" hidden></div>
+          <input type="file" id="fileA" hidden>
+        </div>
+
+        <div class="duel-vs"><span>VS</span></div>
+
+        <div class="dropzone" id="dropzoneB">
+          <div class="dz-top">
+            <span class="dz-slot">SUBMISSION B</span>
+            <span class="dz-check" id="checkB">○</span>
+          </div>
+          <div class="dz-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M14 3H7a2 2 0 00-2 2v14a2 2 0 002 2h10a2 2 0 002-2V9z"/><path d="M14 3v6h6"/></svg>
+          </div>
+          <div class="dz-label" id="labelB">Drag &amp; drop your file here</div>
+          <div class="dz-hint">.txt · .pdf · .docx · .c · .cpp · .py · .java · .js · .html · .css — 10 MB max</div>
+          <div class="field-status" id="statusB"></div>
+          <div class="dz-meta" id="metaB" hidden></div>
+          <input type="file" id="fileB" hidden>
+        </div>
+      </div>
+
+      <div class="actions-row">
+        <button class="btn btn-primary" id="compareBtn" disabled>Run comparison</button>
+        <button class="btn btn-ghost" id="compareAllBtn" disabled>Compare A against every stored submission</button>
+      </div>
+
       <div class="progress-panel" id="progressPanel" hidden>
-        <div class="progress-track">
-          <div class="progress-fill" id="progressFill"></div>
+        <span class="progress-stage" id="progressStage">Queued</span>
+        <div class="progress-track"><div class="progress-fill" id="progressFill"></div></div>
+        <span class="progress-percent mono" id="progressPercent">0%</span>
+      </div>
+    </section>
+
+    <section id="resultsSection">
+      <div class="empty-state" id="emptyState">
+        <b>No comparison loaded</b>Upload a file into each slot above, then run a comparison to see the breakdown here.
+      </div>
+
+      <div id="resultContent" hidden>
+        <div class="page-head">
+          <h1>Analysis result</h1>
+          <p class="match-files" id="matchNote"></p>
         </div>
-        <p class="progress-stage" id="progressStage">Queued</p>
-      </div>
-    </div>
 
-    <div class="panel history-panel">
-      <div class="panel-title-row">
-        <p class="panel-title">History</p>
-        <button class="btn-link" id="refreshHistoryBtn">Refresh</button>
-      </div>
-      <ul class="history-list" id="historyList">
-        <li class="history-empty">No comparisons yet.</li>
-      </ul>
-    </div>
-
-  </section>
-
-  <section class="results" aria-label="Comparison results">
-
-    <div class="empty-state" id="emptyState">
-      <p class="empty-title">No comparison loaded</p>
-      <p class="empty-body">Upload a sample into each slot on the left, then run a comparison to see the signal.</p>
-    </div>
-
-    <div class="result-content" id="resultContent" hidden>
-
-      <div class="score-block">
-        <div class="gauge">
-          <svg viewBox="0 0 220 130" aria-hidden="true">
-            <line class="gauge-tick" x1="20" y1="110" x2="20" y2="98" />
-            <line class="gauge-tick" x1="47" y1="49" x2="55" y2="59" />
-            <line class="gauge-tick" x1="110" y1="20" x2="110" y2="32" />
-            <line class="gauge-tick" x1="173" y1="49" x2="165" y2="59" />
-            <line class="gauge-tick" x1="200" y1="110" x2="200" y2="98" />
-            <path class="gauge-track" d="M20,110 A90,90 0 0 1 200,110" />
-            <path id="gaugeArc" class="gauge-arc" d="M20,110 A90,90 0 0 1 200,110" />
-          </svg>
-          <div class="gauge-readout">
-            <span class="gauge-number" id="finalScore">0.0</span><span class="gauge-unit">%</span>
+        <div class="result-grid">
+          <div class="card gauge-card">
+            <div class="gauge-wrap">
+              <svg viewBox="0 0 200 200">
+                <circle class="gauge-track" cx="100" cy="100" r="80"/>
+                <circle class="gauge-ring" id="gaugeRing" cx="100" cy="100" r="80"/>
+              </svg>
+              <div class="gauge-center">
+                <div class="gauge-score mono" id="finalScore">0.0%</div>
+                <div class="gauge-caption">SIMILARITY</div>
+              </div>
+            </div>
+            <span class="classification" id="classification">—</span>
           </div>
-          <div class="gauge-scale">
-            <span>0</span><span>50</span><span>100</span>
+
+          <div class="card breakdown-card" id="breakdownCard">
+            <h3>Algorithm breakdown</h3>
+            <div class="breakdown" id="breakdown"></div>
           </div>
         </div>
-        <div class="score-meta">
-          <p class="score-label" id="classification">Unclassified</p>
-          <p class="score-files" id="fileNames"></p>
-          <a class="btn btn-secondary" id="downloadReport" hidden href="#">Download report</a>
+
+        <div class="card diff-card">
+          <h3>Matched content</h3>
+          <div class="diff-note" id="diffSubNote">Shared tokens are highlighted across both files.</div>
+          <div id="diffView"></div>
+          <a class="report-link" id="downloadReport" hidden href="#">
+            Download full report
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0l-4-4m4 4l4-4M4 17v2a2 2 0 002 2h12a2 2 0 002-2v-2"/></svg>
+          </a>
         </div>
       </div>
+    </section>
 
-      <div class="panel">
-        <p class="panel-title">Signal breakdown</p>
-        <p class="panel-note">Each detection pass reads the pair independently before the passes are combined.</p>
-        <div id="breakdown"></div>
+    <section id="historySection">
+      <div class="page-head">
+        <h1>Comparison history</h1>
+        <p>Every completed run, with a quick way to revisit or remove it.</p>
       </div>
-
-      <div class="panel">
-        <p class="panel-title">Matched spans</p>
-        <p class="panel-note" id="matchNote"></p>
-        <div class="diff-view" id="diffView"></div>
+      <div class="history-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Date</th>
+              <th>Submission A</th>
+              <th>Submission B</th>
+              <th>Score</th>
+              <th>Classification</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="historyTable">
+            <tr><td colspan="6" class="empty-state"><b>No history yet</b>Your completed comparisons will appear here.</td></tr>
+          </tbody>
+        </table>
       </div>
+    </section>
 
-    </div>
+  </main>
+</div>
 
-  </section>
+<div id="toast"></div>
 
-</main>
-
-<footer class="site-footer">
-  <div class="wrap">
-    <p>Scores combine five independent detection passes into one composite reading. Treat a high score as a prompt to look closer, not as a verdict on its own.</p>
-  </div>
-</footer>
-
-<script src="app.js"></script>
+<script src="{{ url_for('static', filename='js/app.js') }}"></script>
 </body>
 </html>
