@@ -1,0 +1,7 @@
+[
+  "tests/test_core.py::test_classification_bands",
+  "tests/test_core.py::test_hybrid_score_is_weighted_average",
+  "tests/test_core.py::test_preprocess_code_normalizes_identifiers",
+  "tests/test_core.py::test_preprocess_code_strips_comments",
+  "tests/test_core.py::test_preprocess_text_lowercases_and_tokenizes"
+]

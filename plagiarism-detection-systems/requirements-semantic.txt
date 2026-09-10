@@ -1,0 +1,8 @@
+# Optional: install these on top of requirements.txt for real
+# sentence-embedding semantic similarity (all-MiniLM-L6-v2) instead of the
+# built-in TF-IDF fallback. This pulls in PyTorch and needs roughly 1-2 GB
+# of RAM plus a first-run model download (~90 MB) — skip this file on small
+# Railway plans and the app will use the TF-IDF fallback automatically.
+-r requirements.txt
+sentence-transformers==3.0.1
+numpy==1.26.4

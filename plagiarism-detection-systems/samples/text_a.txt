@@ -1,0 +1,2 @@
+The quick brown fox jumps over the lazy dog near the river bank every single morning without fail.
+This sentence exists purely to give the similarity detector some real overlapping content to chew on.

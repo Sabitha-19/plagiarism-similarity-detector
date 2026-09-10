@@ -1,0 +1,2 @@
+The quick brown fox jumps over the lazy dog near the river bank every single morning without fail.
+This sentence was rewritten a little to give the similarity detector some different overlapping text to chew on.
