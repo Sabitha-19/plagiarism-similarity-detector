@@ -1,2127 +1,665 @@
 (() => {
-  "use strict";
+  'use strict';
 
-  /* =========================================================
-     PLAGISCOPE - FRONTEND UI / UX JAVASCRIPT
-     Backend APIs and endpoints remain unchanged.
-     ========================================================= */
-
+  // ---- State Management ----
   const state = {
-    submissionA: null,
-    submissionB: null,
+    submissions: { A: null, B: null },
     pollTimer: null,
-    toastTimer: null
+    toastTimer: null,
   };
 
-  const el = (id) => document.getElementById(id);
+  // ---- Utility Functions ----
+  const getEl = (id) => document.getElementById(id);
 
-  /* =========================================================
-     DOM ELEMENTS
-     ========================================================= */
+  // ---- DOM Elements ----
+  const elements = {
+    dropzones: {
+      A: getEl('dropzoneA'),
+      B: getEl('dropzoneB'),
+    },
+    files: {
+      A: getEl('fileA'),
+      B: getEl('fileB'),
+    },
+    buttons: {
+      compare: getEl('compareBtn'),
+      compareAll: getEl('compareAllBtn'),
+    },
+    progress: {
+      panel: getEl('progressPanel'),
+      fill: getEl('progressFill'),
+      stage: getEl('progressStage'),
+      percent: getEl('progressPercent'),
+    },
+    history: {
+      list: getEl('historyList'),
+      empty: getEl('emptyState'),
+    },
+    results: {
+      content: getEl('resultContent'),
+      gauge: getEl('gaugeArc'),
+      score: getEl('finalScore'),
+      classification: getEl('classification'),
+      fileNames: getEl('fileNames'),
+      reportDownload: getEl('downloadReport'),
+      breakdown: getEl('breakdown'),
+      matchNote: getEl('matchNote'),
+      diffView: getEl('diffView'),
+    },
+    collection: {
+      panel: getEl('collectionPanel'),
+      list: getEl('collectionList'),
+    },
+    modal: {
+      backdrop: getEl('modalBackdrop'),
+      body: getEl('modalBody'),
+      closeBtn: getEl('modalClose'),
+    },
+    ui: {
+      toast: getEl('toast'),
+      toastText: getEl('toastText'),
+      themeToggle: getEl('themeToggle'), // Example for theme switch
+    },
+  };
 
-  const dropzoneA = el("dropzoneA");
-  const dropzoneB = el("dropzoneB");
-
-  const fileA = el("fileA");
-  const fileB = el("fileB");
-
-  const compareBtn = el("compareBtn");
-  const compareAllBtn = el("compareAllBtn");
-
-  const progressPanel = el("progressPanel");
-  const progressFill = el("progressFill");
-  const progressStage = el("progressStage");
-  const progressPercent = el("progressPercent");
-
-  const historyList = el("historyList");
-  const emptyState = el("emptyState");
-
-  const resultContent = el("resultContent");
-  const gaugeArc = el("gaugeArc");
-  const finalScoreEl = el("finalScore");
-  const classificationEl = el("classification");
-
-  const fileNamesEl = el("fileNames");
-  const downloadReport = el("downloadReport");
-
-  const breakdownEl = el("breakdown");
-  const matchNoteEl = el("matchNote");
-  const diffViewEl = el("diffView");
-
-  const collectionPanel = el("collectionPanel");
-  const collectionList = el("collectionList");
-
-  /* =========================================================
-     EXISTING HYBRID SCORING WEIGHTS
-     ========================================================= */
-
+  // ---- Constants ----
   const WEIGHTS = {
     rabin_karp: 0.25,
     hashing: 0.20,
     lcs: 0.20,
     edit_distance: 0.10,
-    semantic: 0.25
+    semantic: 0.25,
   };
 
   const ALGO = {
-    rabin_karp: [
-      "Rabin–Karp",
-      "Exact n-gram overlap",
-      "Detects repeated token sequences."
-    ],
-
-    hashing: [
-      "Hashing",
-      "Shingle Jaccard",
-      "Measures overlap between token shingles."
-    ],
-
-    lcs: [
-      "LCS",
-      "Structural sequence match",
-      "Finds common ordered token sequences."
-    ],
-
-    edit_distance: [
-      "Edit Distance",
-      "Transformation similarity",
-      "Measures how much content must change."
-    ],
-
-    semantic: [
-      "Semantic Similarity",
-      "Meaning-level match",
-      "Captures similarity beyond exact wording."
-    ]
+    rabin_karp: ['Rabin–Karp', 'Exact n-gram overlap', 'Detects repeated token sequences.'],
+    hashing: ['Hashing', 'Shingle Jaccard', 'Measures overlap between token shingles.'],
+    lcs: ['LCS', 'Structural sequence match', 'Finds common ordered token sequences.'],
+    edit_distance: ['Edit Distance', 'Transformation similarity', 'Measures how much content must change.'],
+    semantic: ['Semantic Similarity', 'Meaning-level match', 'Captures similarity beyond exact wording.'],
   };
 
-  const CIRC = 2 * Math.PI * 76;
+  const CIRCUMFERENCE = 2 * Math.PI * 76;
 
-  /* =========================================================
-     UTILITY FUNCTIONS
-     ========================================================= */
-
-  function showToast(message, type = "ok") {
-    const toast = el("toast");
-
+  // ---- UI/UX Enhancements ----
+  function showToast(message, type = 'ok') {
+    const toast = elements.ui.toast;
     if (!toast) return;
 
-    const toastText = el("toastText");
-    const icon = toast.querySelector(".toast-icon");
+    const toastText = getEl('toastText');
+    const icon = toast.querySelector('.toast-icon');
 
-    if (toastText) {
-      toastText.textContent = message;
-    }
+    toastText.textContent = message;
+    icon.textContent = type === 'error' ? '!' : '✓';
 
-    if (icon) {
-      icon.textContent = type === "error" ? "!" : "✓";
-    }
-
-    toast.classList.add("show");
+    toast.classList.add('show');
 
     clearTimeout(state.toastTimer);
-
-    state.toastTimer = setTimeout(() => {
-      toast.classList.remove("show");
-    }, 3200);
+    state.toastTimer = setTimeout(() => toast.classList.remove('show'), 3200);
   }
 
-  function escapeHtml(value) {
-    return String(value ?? "")
-      .replace(/&/g, "&amp;")
-      .replace(/</g, "&lt;")
-      .replace(/>/g, "&gt;")
-      .replace(/"/g, "&quot;");
+  function setTheme(theme) {
+    document.documentElement.setAttribute('data-theme', theme);
   }
 
-  function scoreColor(score) {
-    if (score <= 40) return "#28A77A";
-    if (score <= 60) return "#E7A33E";
-    return "#E25D58";
-  }
-
-  function classification(score) {
-    if (score <= 20) return "Very Low Similarity";
-    if (score <= 40) return "Low Similarity";
-    if (score <= 60) return "Moderate Similarity";
-    if (score <= 80) return "High Similarity";
-
-    return "Very High Similarity";
-  }
-
-  function shortClass(score) {
-    if (score <= 20) return "Very Low";
-    if (score <= 40) return "Low";
-    if (score <= 60) return "Moderate";
-    if (score <= 80) return "High";
-
-    return "Very High";
-  }
-
-  /* =========================================================
-     UPLOAD / DRAG & DROP
-     ========================================================= */
-
-  function setupDropzone(zone, input, slot) {
-    if (!zone || !input) return;
-
-    input.addEventListener("change", () => {
-      if (input.files && input.files[0]) {
-        handleUpload(input.files[0], slot, zone);
-      }
-    });
-
-    ["dragenter", "dragover"].forEach((eventName) => {
-      zone.addEventListener(eventName, (event) => {
-        event.preventDefault();
-        event.stopPropagation();
-
-        zone.classList.add("is-dragover");
-      });
-    });
-
-    ["dragleave", "drop"].forEach((eventName) => {
-      zone.addEventListener(eventName, (event) => {
-        event.preventDefault();
-        event.stopPropagation();
-
-        zone.classList.remove("is-dragover");
-      });
-    });
-
-    zone.addEventListener("drop", (event) => {
-      const files = event.dataTransfer.files;
-
-      if (files && files[0]) {
-        handleUpload(files[0], slot, zone);
-      }
-    });
-  }
-
-  async function handleUpload(file, slot, zone) {
-    const status = el(slot === "A" ? "statusA" : "statusB");
-    const card = el(slot === "A" ? "cardA" : "cardB");
-    const check = el(slot === "A" ? "checkA" : "checkB");
-
-    if (!file) return;
-
-    if (status) {
-      status.textContent = "Uploading…";
-      status.className = "field-status";
-    }
-
-    zone.classList.remove("has-file");
-
-    const form = new FormData();
-    form.append("file", file);
-
-    try {
-      /* Existing backend API */
-      const response = await fetch("/api/upload", {
-        method: "POST",
-        body: form
-      });
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.error || "Upload failed.");
-      }
-
-      if (slot === "A") {
-        state.submissionA = data;
-      } else {
-        state.submissionB = data;
-      }
-
-      zone.classList.add("has-file");
-
-      if (card) {
-        card.classList.add("has-file");
-      }
-
-      if (check) {
-        check.textContent = "✓";
-      }
-
-      const label = el("label" + slot);
-
-      if (label) {
-        label.textContent = data.file_name;
-      }
-
-      if (status) {
-        status.textContent =
-          `Uploaded • ${data.file_type} • ready`;
-
-        status.className = "field-status is-ok";
-      }
-
-      const meta = el("meta" + slot);
-
-      if (meta) {
-        meta.hidden = false;
-
-        meta.innerHTML = `
-          <span class="meta-name">
-            ${escapeHtml(data.file_name)}
-          </span>
-
-          <span class="meta-type">
-            ${escapeHtml(data.file_type)}
-          </span>
-
-          <button
-            class="file-remove"
-            type="button"
-            aria-label="Replace file">
-            ×
-          </button>
-        `;
-
-        const removeButton =
-          meta.querySelector(".file-remove");
-
-        if (removeButton) {
-          removeButton.addEventListener("click", (event) => {
-            event.stopPropagation();
-            resetUpload(slot);
-          });
-        }
-      }
-
-      showToast(
-        `${data.file_name} is ready for analysis.`
-      );
-
-    } catch (error) {
-
-      if (status) {
-        status.textContent =
-          error.message || "Upload failed.";
-
-        status.className = "field-status is-error";
-      }
-
-      showToast(
-        error.message || "Upload failed.",
-        "error"
-      );
-    }
-
-    updateActionState();
-  }
-
-  function resetUpload(slot) {
-    const input = el("file" + slot);
-    const zone = el("dropzone" + slot);
-    const card = el("card" + slot);
-    const meta = el("meta" + slot);
-
-    if (slot === "A") {
-      state.submissionA = null;
-    } else {
-      state.submissionB = null;
-    }
-
-    if (input) {
-      input.value = "";
-    }
-
-    if (zone) {
-      zone.classList.remove("has-file");
-      zone.classList.remove("is-dragover");
-    }
-
-    if (card) {
-      card.classList.remove("has-file");
-    }
-
-    const check = el("check" + slot);
-
-    if (check) {
-      check.textContent = "○";
-    }
-
-    const label = el("label" + slot);
-
-    if (label) {
-      label.textContent =
-        "Drag & drop your file here";
-    }
-
-    const status = el("status" + slot);
-
-    if (status) {
-      status.textContent = "";
-      status.className = "field-status";
-    }
-
-    if (meta) {
-      meta.hidden = true;
-    }
-
-    updateActionState();
-
-    showToast(
-      `Submission ${slot} removed. You can choose another file.`
-    );
-  }
-
-  function updateActionState() {
-    if (compareBtn) {
-      compareBtn.disabled =
-        !(state.submissionA && state.submissionB);
-    }
-
-    if (compareAllBtn) {
-      compareAllBtn.disabled =
-        !state.submissionA;
-    }
-  }
-
-  setupDropzone(
-    dropzoneA,
-    fileA,
-    "A"
-  );
-
-  setupDropzone(
-    dropzoneB,
-    fileB,
-    "B"
-  );
-
-  const browseA = el("browseA");
-  const browseB = el("browseB");
-
-  if (browseA && fileA) {
-    browseA.addEventListener("click", () => {
-      fileA.click();
-    });
-  }
-
-  if (browseB && fileB) {
-    browseB.addEventListener("click", () => {
-      fileB.click();
-    });
-  }
-
-  /* =========================================================
-     NORMAL COMPARISON
-     ========================================================= */
-
-  if (compareBtn) {
-    compareBtn.addEventListener("click", async () => {
-
-      if (!state.submissionA || !state.submissionB) {
-        showToast(
-          "Please upload both submissions first.",
-          "error"
-        );
-
-        return;
-      }
-
-      setBusy(true, "pair");
-
-      try {
-
-        /* Existing backend API */
-        const response = await fetch("/api/compare", {
-          method: "POST",
-
-          headers: {
-            "Content-Type": "application/json"
-          },
-
-          body: JSON.stringify({
-            submission_id_1:
-              state.submissionA.submission_id,
-
-            submission_id_2:
-              state.submissionB.submission_id
-          })
-        });
-
-        const data = await response.json();
-
-        if (!response.ok) {
-          throw new Error(
-            data.error ||
-            "Could not start comparison."
-          );
-        }
-
-        pollJob(
-          data.job_id,
-          () => loadResults(data.comparison_id)
-        );
-
-      } catch (error) {
-
-        setBusy(false);
-
-        showToast(
-          error.message ||
-          "Comparison could not be started.",
-          "error"
-        );
-      }
-    });
-  }
-
-  /* =========================================================
-     COMPARE AGAINST COLLECTION
-     ========================================================= */
-
-  if (compareAllBtn) {
-    compareAllBtn.addEventListener(
-      "click",
-      async () => {
-
-        if (!state.submissionA) {
-          showToast(
-            "Please upload Submission A first.",
-            "error"
-          );
-
-          return;
-        }
-
-        setBusy(true, "collection");
-
-        try {
-
-          /* Existing backend API */
-          const response =
-            await fetch(
-              "/api/compare-against-all",
-              {
-                method: "POST",
-
-                headers: {
-                  "Content-Type":
-                    "application/json"
-                },
-
-                body: JSON.stringify({
-                  submission_id:
-                    state.submissionA.submission_id
-                })
-              }
-            );
-
-          const data =
-            await response.json();
-
-          if (!response.ok) {
-            throw new Error(
-              data.error ||
-              "Could not start collection comparison."
-            );
-          }
-
-          pollJob(
-            data.job_id,
-            (job) => {
-              setBusy(false);
-
-              renderCollection(
-                job.result?.results || []
-              );
-
-              loadHistory();
-            }
-          );
-
-        } catch (error) {
-
-          setBusy(false);
-
-          showToast(
-            error.message ||
-            "Collection comparison failed.",
-            "error"
-          );
-        }
-      }
-    );
-  }
-
-  /* =========================================================
-     LOADING / PROGRESS STATE
-     ========================================================= */
-
-  function setBusy(busy, mode) {
-
-    if (compareBtn) {
-      compareBtn.disabled =
-        busy ||
-        !(state.submissionA &&
-          state.submissionB);
-    }
-
-    if (compareAllBtn) {
-      compareAllBtn.disabled =
-        busy ||
-        !state.submissionA;
-    }
-
-    if (progressPanel) {
-      progressPanel.hidden = !busy;
-    }
-
-    if (busy) {
-
-      const title =
-        el("progressTitle");
-
-      if (title) {
-        title.textContent =
-          mode === "collection"
-            ? "Comparing against collection"
-            : "Analysis in progress";
-      }
-
-      if (progressFill) {
-        progressFill.style.width = "0%";
-      }
-
-      if (progressPercent) {
-        progressPercent.textContent = "0%";
-      }
-
-      if (progressStage) {
-        progressStage.textContent =
-          "Preparing analysis...";
-      }
-    }
+  function updateProgress(stage, progress = null) {
+    const { panel, fill, stageText, percent } = elements.progress;
+    panel.hidden = false;
+
+    stageText.textContent = humanizeStage(stage, progress);
+    percent.textContent = progress !== null ? `${progress}%` : '';
+
+    fill.style.width = progress !== null ? `${progress}%` : '0%';
+    stageText.dataset.stage = stage;
   }
 
   function humanizeStage(stage, progress) {
-
-    const messages = {
-
-      queued:
-        "Queued",
-
-      extracting:
-        "Extracting and preprocessing files",
-
-      running_dsa_algorithms:
-        "Running Rabin–Karp, hashing, LCS and edit distance",
-
-      computing_semantic_similarity:
-        "Computing semantic similarity",
-
-      scoring:
-        "Combining hybrid score",
-
-      comparing:
-        "Comparing against stored submissions",
-
-      done:
-        "Completed"
+    const stages = {
+      queued: 'Queued',
+      extracting: 'Extracting and preprocessing files',
+      running_dsa_algorithms: 'Running Rabin–Karp, hashing, LCS and edit distance',
+      computing_semantic_similarity: 'Computing semantic similarity',
+      scoring: 'Combining hybrid score',
+      comparing: 'Comparing against stored submissions',
+      done: 'Completed',
     };
+    const message = stages[stage] || stage || 'Working';
+    return progress !== null ? `${message} (${progress}%)` : message;
+  }
 
-    const message =
-      messages[stage] ||
-      stage ||
-      "Working";
+  function handleDropzoneEvents(zone, slot) {
+    zone.addEventListener('dragenter', (e) => { e.preventDefault(); zone.classList.add('is-dragover'); });
+    zone.addEventListener('dragover', (e) => { e.preventDefault(); zone.classList.add('is-dragover'); });
+    zone.addEventListener('dragleave', (e) => { e.preventDefault(); zone.classList.remove('is-dragover'); });
+    zone.addEventListener('drop', (e) => {
+      e.preventDefault();
+      zone.classList.remove('is-dragover');
+      if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+        processUpload(e.dataTransfer.files[0], slot);
+      }
+    });
+    // For file input
+    getEl(`file${slot}`).addEventListener('change', () => {
+      if (getEl(`file${slot}`).files?.[0]) {
+        processUpload(getEl(`file${slot}`).files[0], slot);
+      }
+    });
+  }
 
-    if (typeof progress === "number") {
-      return `${message} (${progress}%)`;
+  async function processUpload(file, slot) {
+    // Show uploading status
+    updateUploadStatus(slot, 'Uploading…', false);
+    // Upload via API
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      const response = await fetch('/api/upload', { method: 'POST', body: formData });
+      const data = await response.json();
+
+      if (!response.ok) throw new Error(data.error || 'Upload failed.');
+
+      // Save submission state
+      state.submissions[slot] = data;
+      // Update UI
+      updateUploadStatus(slot, `Uploaded • ${data.file_type} • ready`, true, data.file_name);
+      showToast(`${data.file_name} is ready for analysis.`);
+    } catch (err) {
+      updateUploadStatus(slot, err.message || 'Upload failed.', false);
+      showToast(err.message || 'Upload failed.', 'error');
+    }
+    refreshActionButtons();
+  }
+
+  function updateUploadStatus(slot, message, success, filename = '') {
+    const statusEl = getEl(`status${slot}`);
+    const labelEl = getEl(`label${slot}`);
+    const metaEl = getEl(`meta${slot}`);
+    const checkEl = getEl(`check${slot}`);
+
+    statusEl.textContent = message;
+    statusEl.className = success ? 'field-status is-ok' : 'field-status is-error';
+
+    if (labelEl) labelEl.textContent = filename || 'Drag & drop your file here';
+
+    if (metaEl) {
+      metaEl.hidden = !success;
+      if (success) {
+        metaEl.innerHTML = `
+          <span class="meta-name">${escapeHtml(filename)}</span>
+          <span class="meta-type">${escapeHtml(getEl(`file${slot}`).files?.[0]?.type || '')}</span>
+          <button class="file-remove" aria-label="Replace file">×</button>`;
+        metaEl.querySelector('.file-remove').addEventListener('click', () => resetUpload(slot));
+      }
     }
 
-    return message;
+    if (checkEl) checkEl.textContent = success ? '✓' : '○';
   }
 
-  function markStages(stage) {
+  function resetUpload(slot) {
+    getEl(`file${slot}`).value = '';
+    const zone = getEl(`dropzone${slot}`);
+    zone.classList.remove('has-file', 'is-dragover');
+    updateUploadStatus(slot, 'Drag & drop your file here', false);
+    showToast(`Submission ${slot} removed. You can choose another file.`);
+    refreshActionButtons();
+  }
 
-    const order = [
-      "extracting",
-      "running_dsa_algorithms",
-      "computing_semantic_similarity",
-      "scoring",
-      "done"
-    ];
+  function refreshActionButtons() {
+    const { compare, compareAll } = elements.buttons;
+    compare.disabled = !(state.submissions.A && state.submissions.B);
+    compareAll.disabled = !state.submissions.A;
+  }
 
-    const index =
-      order.indexOf(stage);
+  // Setup Dropzones
+  Object.entries(elements.dropzones).forEach(([slot, zone]) => handleDropzoneEvents(zone, slot));
 
-    document
-      .querySelectorAll(".stage-list span")
-      .forEach((stageElement) => {
+  // Event handlers for buttons
+  elements.buttons.compare?.addEventListener('click', startComparison);
+  elements.buttons.compareAll?.addEventListener('click', compareAgainstCollection);
 
-        const stageIndex =
-          order.indexOf(
-            stageElement.dataset.stage
-          );
-
-        stageElement.classList.toggle(
-          "done",
-          stageIndex !== -1 &&
-          stageIndex <= index
-        );
+  async function startComparison() {
+    if (!state.submissions.A || !state.submissions.B) {
+      showToast('Please upload both submissions first.', 'error');
+      return;
+    }
+    setBusy(true, 'pair');
+    try {
+      const response = await fetch('/api/compare', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          submission_id_1: state.submissions.A.submission_id,
+          submission_id_2: state.submissions.B.submission_id,
+        }),
       });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Could not start comparison.');
+      pollJob(data.job_id, () => loadResults(data.comparison_id));
+    } catch (err) {
+      setBusy(false);
+      showToast(err.message || 'Comparison could not be started.', 'error');
+    }
   }
 
-  /* =========================================================
-     REAL BACKEND JOB POLLING
-     ========================================================= */
+  async function compareAgainstCollection() {
+    if (!state.submissions.A) {
+      showToast('Please upload Submission A first.', 'error');
+      return;
+    }
+    setBusy(true, 'collection');
+    try {
+      const response = await fetch('/api/compare-against-all', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ submission_id: state.submissions.A.submission_id }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Could not start collection comparison.');
+      pollJob(data.job_id, (job) => {
+        setBusy(false);
+        renderCollection(job.result?.results || []);
+        loadHistory();
+      });
+    } catch (err) {
+      setBusy(false);
+      showToast(err.message || 'Collection comparison failed.', 'error');
+    }
+  }
 
-  function pollJob(jobId, onDone) {
+  function setBusy(isBusy, mode) {
+    elements.buttons.compare.disabled = isBusy || !(state.submissions.A && state.submissions.B);
+    elements.buttons.compareAll.disabled = isBusy || !state.submissions.A;
+    elements.progress.panel.hidden = !isBusy;
 
+    if (isBusy) {
+      updateProgress('queued', 0);
+    }
+  }
+
+  function pollJob(jobId, onComplete) {
     clearInterval(state.pollTimer);
-
     let failures = 0;
-
-    state.pollTimer =
-      setInterval(async () => {
-
-        try {
-
-          /* Existing backend progress API */
-          const response =
-            await fetch(
-              `/api/jobs/${jobId}`
-            );
-
-          const job =
-            await response.json();
-
-          if (!response.ok) {
-            throw new Error(
-              job.error ||
-              "Job lookup failed."
-            );
-          }
-
-          failures = 0;
-
-          const progress =
-            Number(job.progress || 0);
-
-          if (progressFill) {
-            progressFill.style.width =
-              `${progress}%`;
-          }
-
-          if (progressPercent) {
-            progressPercent.textContent =
-              `${progress}%`;
-          }
-
-          if (progressStage) {
-            progressStage.textContent =
-              humanizeStage(
-                job.stage,
-                progress
-              );
-          }
-
-          markStages(job.stage);
-
-          if (job.status === "completed") {
-
-            clearInterval(
-              state.pollTimer
-            );
-
-            setBusy(false);
-
-            onDone(job);
-
-          } else if (
-            job.status === "failed"
-          ) {
-
-            clearInterval(
-              state.pollTimer
-            );
-
-            setBusy(false);
-
-            showToast(
-              `Comparison failed: ${
-                job.error ||
-                "Unknown error"
-              }`,
-              "error"
-            );
-          }
-
-        } catch (error) {
-
-          failures++;
-
-          if (failures >= 3) {
-
-            clearInterval(
-              state.pollTimer
-            );
-
-            setBusy(false);
-
-            showToast(
-              "Unable to read analysis status. Please retry.",
-              "error"
-            );
-          }
+    state.pollTimer = setInterval(async () => {
+      try {
+        const response = await fetch(`/api/jobs/${jobId}`);
+        const job = await response.json();
+        if (!response.ok) throw new Error(job.error || 'Job lookup failed.');
+        updateProgress(job.stage, job.progress);
+        if (job.status === 'completed') {
+          clearInterval(state.pollTimer);
+          setBusy(false);
+          onComplete(job);
+        } else if (job.status === 'failed') {
+          clearInterval(state.pollTimer);
+          setBusy(false);
+          showToast(`Comparison failed: ${job.error || 'Unknown error'}`, 'error');
         }
-
-      }, 650);
+        failures = 0;
+      } catch {
+        failures++;
+        if (failures >= 3) {
+          clearInterval(state.pollTimer);
+          setBusy(false);
+          showToast('Unable to read analysis status. Please retry.', 'error');
+        }
+      }
+    }, 650);
   }
-
-  /* =========================================================
-     LOAD RESULT
-     ========================================================= */
 
   async function loadResults(id) {
-
     try {
-
-      /* Existing backend result API */
-      const response =
-        await fetch(
-          `/api/results/${id}`
-        );
-
-      const data =
-        await response.json();
-
-      if (!response.ok) {
-        throw new Error(
-          data.error ||
-          "Could not load results."
-        );
-      }
-
+      const response = await fetch(`/api/results/${id}`);
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Could not load results.');
       renderResults(data);
-
       loadHistory();
-
-      location.hash =
-        "resultsSection";
-
-      showToast(
-        "Comparison completed successfully."
-      );
-
-    } catch (error) {
-
-      showToast(
-        error.message ||
-        "Could not load results.",
-        "error"
-      );
+      // Navigate to results section
+      location.hash = 'resultsSection';
+      showToast('Comparison completed successfully.');
+    } catch (err) {
+      showToast(err.message || 'Could not load results.', 'error');
     }
   }
 
-  /* =========================================================
-     RESULT DASHBOARD
-     ========================================================= */
-
   function renderResults(data) {
+    // Reset UI
+    elements.results.content.hidden = false;
+    elements.results.gauge.style.stroke = '';
+    elements.results.score.textContent = '';
+    elements.results.classification.textContent = '';
 
-    if (emptyState) {
-      emptyState.hidden = true;
-    }
+    // Final score & color
+    const score = Number(data.scores?.final_score || 0);
+    const color = scoreColor(score);
+    const offset = CIRCUMFERENCE * (1 - score / 100);
 
-    if (resultContent) {
-      resultContent.hidden = false;
-    }
+    // Update gauge
+    elements.results.gauge.style.stroke = color;
+    elements.results.gauge.style.strokeDashoffset = String(offset);
+    // Update score & classification
+    elements.results.score.textContent = score.toFixed(1);
+    elements.results.score.style.color = color;
+    elements.results.classification.textContent = data.classification || classification(score);
+    elements.results.classification.style.color = color;
 
-    const score =
-      Number(
-        data.scores?.final_score || 0
-      );
+    // File names
+    const nameA = data.submission_1?.file_name || 'Submission A';
+    const nameB = data.submission_2?.file_name || 'Submission B';
+    elements.results.fileNames.textContent = `${nameA}  ↔  ${nameB}`;
 
-    const color =
-      scoreColor(score);
+    // Download report
+    elements.results.reportDownload.hidden = false;
+    elements.results.reportDownload.href = `/api/report/${data.id}`;
 
-    const offset =
-      CIRC *
-      (1 - score / 100);
-
-    if (gaugeArc) {
-
-      gaugeArc.style.stroke =
-        color;
-
-      gaugeArc.style.strokeDashoffset =
-        String(offset);
-    }
-
-    if (finalScoreEl) {
-
-      finalScoreEl.textContent =
-        score.toFixed(1);
-
-      finalScoreEl.style.color =
-        color;
-    }
-
-    if (classificationEl) {
-
-      classificationEl.textContent =
-        data.classification ||
-        classification(score);
-
-      classificationEl.style.color =
-        color;
-    }
-
-    const assessment =
-      el("assessmentText");
-
-    if (assessment) {
-
-      assessment.textContent =
-        shortClass(score) +
-        " similarity";
-    }
-
-    const nameA =
-      data.submission_1?.file_name ||
-      "Submission A";
-
-    const nameB =
-      data.submission_2?.file_name ||
-      "Submission B";
-
-    if (fileNamesEl) {
-
-      fileNamesEl.textContent =
-        `${nameA}  ↔  ${nameB}`;
-    }
-
-    if (downloadReport) {
-
-      downloadReport.hidden = false;
-
-      /* Existing PDF report API */
-      downloadReport.href =
-        `/api/report/${data.id}`;
-    }
-
-    renderBreakdown(
-      data.scores?.breakdown || {}
-    );
-
+    // Render breakdown and diff
+    renderBreakdown(data.scores?.breakdown || {});
     renderDiff(data);
   }
 
-  /* =========================================================
-     ALGORITHM BREAKDOWN
-     ========================================================= */
-
   function renderBreakdown(breakdown) {
+    const container = elements.results.breakdown;
+    container.innerHTML = '';
 
-    if (!breakdownEl) return;
+    Object.entries(ALGO).forEach(([key, [title, desc]]) => {
+      const value = Math.max(0, Math.min(100, Number(breakdown[key] ?? 0)));
+      const contribution = value * WEIGHTS[key];
 
-    breakdownEl.innerHTML = "";
-
-    Object.entries(ALGO)
-      .forEach(([key, metadata]) => {
-
-        const value =
-          Math.max(
-            0,
-            Math.min(
-              100,
-              Number(
-                breakdown[key] ?? 0
-              )
-            )
-          );
-
-        const contribution =
-          value *
-          WEIGHTS[key];
-
-        const card =
-          document.createElement(
-            "article"
-          );
-
-        card.className =
-          "algo-card";
-
-        card.innerHTML = `
-
-          <div class="algo-top">
-
-            <span class="algo-name">
-              ${metadata[0]}
-            </span>
-
-            <strong class="algo-value">
-              ${value.toFixed(1)}%
-            </strong>
-
-          </div>
-
-          <p class="algo-desc">
-            ${metadata[1]} —
-            ${metadata[2]}
-          </p>
-
-          <div class="algo-track">
-
-            <div
-              class="algo-fill"
-              style="width:${value}%">
-            </div>
-
-          </div>
-
-          <div class="algo-foot">
-
-            <span>
-              Weight
-              <b>
-                ${WEIGHTS[key] * 100}%
-              </b>
-            </span>
-
-            <span>
-              Contribution
-              <b>
-                ${contribution.toFixed(1)}
-              </b>
-            </span>
-
-          </div>
-        `;
-
-        breakdownEl.appendChild(card);
-      });
+      const card = document.createElement('article');
+      card.className = 'algo-card';
+      card.innerHTML = `
+        <div class="algo-top">
+          <span class="algo-name">${title}</span>
+          <strong class="algo-value">${value.toFixed(1)}%</strong>
+        </div>
+        <p class="algo-desc">${desc}</p>
+        <div class="algo-track">
+          <div class="algo-fill" style="width:${value}%"></div>
+        </div>
+        <div class="algo-foot">
+          <span>Weight <b>${(WEIGHTS[key] * 100).toFixed(0)}%</b></span>
+          <span>Contribution <b>${contribution.toFixed(1)}</b></span>
+        </div>
+      `;
+      container.appendChild(card);
+    });
   }
 
-  /* =========================================================
-     MATCHED CONTENT / DIFF VIEWER
-     ========================================================= */
-
   function renderDiff(data) {
+    const { lcs, tokens_a, tokens_b } = data.matches || {};
+    const diffTokens = data.diff;
 
-    const lcs =
-      data.matches?.lcs;
-
-    const diff =
-      data.diff;
-
-    if (!diff) {
-
-      if (matchNoteEl) {
-        matchNoteEl.textContent =
-          "Matched-section highlighting is not available for this comparison.";
-      }
-
-      if (diffViewEl) {
-
-        diffViewEl.innerHTML = `
-
-          <div class="empty-state">
-
-            <h3>
-              Match view unavailable
-            </h3>
-
-            <p>
-              The analysis result is still valid,
-              but the source preview could not be rebuilt.
-            </p>
-
-          </div>
-        `;
-      }
-
+    if (!diffTokens) {
+      elements.results.matchNote.textContent = 'Matched-section highlighting is not available for this comparison.';
+      elements.results.diffView.innerHTML = `
+        <div class="empty-state">
+          <h3>Match view unavailable</h3>
+          <p>The analysis result is still valid, but the source preview could not be rebuilt.</p>
+        </div>`;
       return;
     }
 
-    const runs =
-      lcs?.matched_runs || [];
-
-    if (matchNoteEl) {
-
-      matchNoteEl.textContent =
-        lcs?.identifier_normalized
-
-          ? "Highlighted spans show exact overlap; the LCS score also considers identifier-normalized code."
-
-          : "Highlighted spans show tokens shared by both submissions, in order.";
-    }
-
-    if (diffViewEl) {
-
-      diffViewEl.innerHTML = `
-
-        <div class="diff-col">
-
-          ${diffHeader(
-            "Submission A",
-            data.submission_1?.file_name
-          )}
-
-          <div class="code-body">
-
-            ${renderCode(
-              diff.tokens_a || [],
-              runs,
-              0
-            )}
-
-          </div>
-
-        </div>
-
-        <div class="diff-col">
-
-          ${diffHeader(
-            "Submission B",
-            data.submission_2?.file_name
-          )}
-
-          <div class="code-body">
-
-            ${renderCode(
-              diff.tokens_b || [],
-              runs,
-              2
-            )}
-
-          </div>
-
-        </div>
-      `;
-    }
-  }
-
-  function diffHeader(label, name) {
-
-    return `
-
-      <div class="diff-head">
-
-        <strong>
-          ${escapeHtml(label)}
-        </strong>
-
-        <span>
-          ${escapeHtml(
-            name || "File"
-          )}
-        </span>
-
+    // Highlight shared tokens
+    const sharedIndices = new Set();
+    (lcs?.matched_runs || []).forEach(run => {
+      run.forEach(i => sharedIndices.add(i));
+    });
+    // Render code with highlights
+    elements.results.diffView.innerHTML = `
+      <div class="diff-column">
+        ${renderCodeBlock(tokens_a, sharedIndices, 0)}
+      </div>
+      <div class="diff-column">
+        ${renderCodeBlock(tokens_b, sharedIndices, 2)}
       </div>
     `;
+    // Note about shared tokens
+    elements.results.matchNote.textContent = lcs?.identifier_normalized
+      ? 'Highlighted spans show exact overlap; the LCS score also considers identifier-normalized code.'
+      : 'Highlighted spans show tokens shared by both submissions, in order.';
   }
 
-  function renderCode(
-    tokens,
-    runs,
-    offset
-  ) {
-
-    const covered =
-      new Set();
-
-    runs.forEach((run) => {
-
-      for (
-        let i = run[offset];
-        i <= run[offset + 1];
-        i++
-      ) {
-        covered.add(i);
-      }
-    });
-
+  function renderCodeBlock(tokens, sharedIndices, offset) {
     const lines = [];
-
-    let line = [];
-
+    let currentLine = { no: 1, tokens: [], match: false };
     let lineNumber = 1;
 
     tokens.forEach((token, index) => {
+      const isMatch = sharedIndices.has(index);
+      const tokenParts = token.split('\n');
 
-      if (token.includes("\n")) {
-
-        token
-          .split("\n")
-          .forEach(
-            (part, partIndex) => {
-
-              if (partIndex) {
-
-                lines.push({
-                  no: lineNumber++,
-                  tokens: line,
-                  match:
-                    line.some(
-                      item =>
-                        item.match
-                    )
-                });
-
-                line = [];
-              }
-
-              if (part) {
-
-                line.push({
-                  text: part,
-                  match:
-                    covered.has(index)
-                });
-              }
-            }
-          );
-
-      } else {
-
-        line.push({
-          text: token,
-          match:
-            covered.has(index)
-        });
-      }
-    });
-
-    if (
-      line.length ||
-      !lines.length
-    ) {
-
-      lines.push({
-        no: lineNumber,
-        tokens: line,
-        match:
-          line.some(
-            item => item.match
-          )
+      tokenParts.forEach((part, partIdx) => {
+        if (partIdx > 0) {
+          // Save previous line
+          lines.push({ ...currentLine });
+          currentLine = { no: ++lineNumber, tokens: [], match: false };
+        }
+        currentLine.tokens.push({ text: part, match: isMatch });
       });
-    }
+    });
+    lines.push(currentLine);
 
     return lines
-      .map(
-        (lineData) => `
-
-          <div
-            class="code-line ${
-              lineData.match
-                ? "match"
-                : ""
-            }">
-
-            <span class="line-no">
-              ${lineData.no}
-            </span>
-
-            <span class="line-code">
-
-              ${lineData.tokens
-                .map(
-                  token =>
-                    token.match
-
-                      ? `<mark class="match">
-                          ${escapeHtml(
-                            token.text
-                          )}
-                         </mark>`
-
-                      : escapeHtml(
-                          token.text
-                        )
-                )
-                .join(" ")}
-
-            </span>
-
-          </div>
-        `
-      )
-      .join("");
+      .map(lineData => `
+        <div class="code-line ${lineData.match ? 'match' : ''}">
+          <span class="line-no">${lineData.no}</span>
+          <span class="line-code">
+            ${lineData.tokens
+              .map(t => t.match
+                ? `<mark class="match">${escapeHtml(t.text)}</mark>`
+                : escapeHtml(t.text))
+              .join(' ')}
+          </span>
+        </div>`)
+      .join('');
   }
 
-  /* =========================================================
-     COLLECTION RESULTS
-     ========================================================= */
-
+  // ---- Collection Render ----
   function renderCollection(results) {
+    const container = elements.collection.list;
+    const panel = elements.collection.panel;
 
-    if (!collectionPanel ||
-        !collectionList) {
-      return;
-    }
+    if (!container || !panel) return;
 
-    collectionPanel.hidden =
-      false;
-
-    collectionList.innerHTML =
-      "";
+    panel.hidden = false;
+    container.innerHTML = '';
 
     if (!results.length) {
-
-      collectionList.innerHTML = `
-
+      container.innerHTML = `
         <div class="table-empty">
-
-          <b>
-            No stored comparison candidates
-          </b>
-
-          <span>
-            Upload additional submissions
-            to build a collection.
-          </span>
-
-        </div>
-      `;
-
-      collectionPanel.scrollIntoView({
-        behavior: "smooth",
-        block: "start"
-      });
-
+          <b>No stored comparison candidates</b>
+          <span>Upload additional submissions to build a collection.</span>
+        </div>`;
+      panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
       return;
     }
 
-    results.forEach(
-      (result, index) => {
+    results.forEach((res, idx) => {
+      const score = Number(JSON.parse(res.scores ?? '{}')?.final_score ?? 0);
+      const level = shortClass(score);
+      const badgeClass = level.toLowerCase().replace(' ', '-');
 
-        let scores = {};
+      const row = document.createElement('div');
+      row.className = 'collection-row';
+      row.innerHTML = `
+        <div class="rank">${idx + 1}</div>
+        <div>
+          <div class="collection-name">${escapeHtml(res.file_name)}</div>
+          <div class="collection-sub">${escapeHtml(res.status || 'completed')}</div>
+        </div>
+        <div class="collection-score" style="color:${scoreColor(score)}">${score.toFixed(1)}%</div>
+        <span class="badge badge-${badgeClass}">${level}</span>
+      `;
 
-        try {
-
-          scores =
-            typeof result.scores === "string"
-
-              ? JSON.parse(
-                  result.scores
-                )
-
-              : result.scores || {};
-
-        } catch {
-          scores = {};
-        }
-
-        const score =
-          Number(
-            scores.final_score || 0
-          );
-
-        const row =
-          document.createElement(
-            "div"
-          );
-
-        row.className =
-          "collection-row";
-
-        const level =
-          shortClass(score);
-
-        const badgeClass =
-          level
-            .toLowerCase()
-            .replace(" ", "-");
-
-        row.innerHTML = `
-
-          <div class="rank">
-            ${index + 1}
-          </div>
-
-          <div>
-
-            <div class="collection-name">
-              ${escapeHtml(
-                result.file_name
-              )}
-            </div>
-
-            <div class="collection-sub">
-              ${escapeHtml(
-                result.status ||
-                "completed"
-              )}
-            </div>
-
-          </div>
-
-          <div
-            class="collection-score"
-            style="color:${scoreColor(score)}">
-
-            ${score.toFixed(1)}%
-
-          </div>
-
-          <span
-            class="badge badge-${badgeClass}">
-
-            ${level}
-
-          </span>
-        `;
-
-        row.addEventListener(
-          "click",
-          () => {
-
-            if (
-              result.comparison_id
-            ) {
-
-              loadResults(
-                result.comparison_id
-              );
-            }
-          }
-        );
-
-        row.style.cursor =
-          "pointer";
-
-        collectionList.appendChild(
-          row
-        );
-      }
-    );
-
-    collectionPanel.scrollIntoView({
-      behavior: "smooth",
-      block: "start"
+      row.style.cursor = 'pointer';
+      row.addEventListener('click', () => {
+        if (res.comparison_id) loadResults(res.comparison_id);
+      });
+      container.appendChild(row);
     });
+    panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
 
-  /* =========================================================
-     HISTORY
-     ========================================================= */
-
+  // ---- Load History ----
   async function loadHistory() {
-
-    if (!historyList) return;
+    const list = elements.history.list;
+    if (!list) return;
 
     try {
+      const response = await fetch('/api/history');
+      const rows = await response.json();
 
-      /* Existing history API */
-      const response =
-        await fetch("/api/history");
-
-      const rows =
-        await response.json();
-
-      if (!response.ok) {
-        throw new Error(
-          "History unavailable"
-        );
-      }
-
-      if (!rows.length) {
-
-        historyList.innerHTML = `
-
-          <tr>
-
-            <td colspan="6">
-
-              <div class="table-empty">
-
-                <b>
-                  No history yet
-                </b>
-
-                <span>
-                  Your completed comparisons
-                  will appear here.
-                </span>
-
-              </div>
-
-            </td>
-
-          </tr>
-        `;
-
+      if (!response.ok || !rows.length) {
+        list.innerHTML = `<tr><td colspan="6"><div class="table-empty"><b>No history yet</b><span>Your completed comparisons will appear here.</span></div></td></tr>`;
         return;
       }
 
-      historyList.innerHTML = "";
-
-      rows.forEach((row) => {
-
-        let score = null;
-
-        try {
-
-          if (row.scores) {
-
-            const scores =
-              typeof row.scores === "string"
-
-                ? JSON.parse(
-                    row.scores
-                  )
-
-                : row.scores;
-
-            score =
-              Number(
-                scores.final_score
-              );
-          }
-
-        } catch {
-          score = null;
-        }
-
-        const color =
-          score !== null
-            ? scoreColor(score)
-            : "#8792a3";
-
-        const tr =
-          document.createElement(
-            "tr"
-          );
-
-        let date = "—";
-
-        if (row.created_at) {
-
+      list.innerHTML = '';
+      rows.forEach(row => {
+        const scoreData = (() => {
           try {
-
-            date =
-              new Date(
-                row.created_at
-                  .replace(
-                    " ",
-                    "T"
-                  ) + "Z"
-              ).toLocaleString(
-                [],
-                {
-                  day: "2-digit",
-                  month: "short",
-                  year: "numeric"
-                }
-              );
-
+            return JSON.parse(row.scores ?? '{}');
           } catch {
-            date = row.created_at;
+            return {};
           }
-        }
+        })();
+        const score = Number(scoreData.final_score ?? 0);
+        const color = score ? scoreColor(score) : '#8792a3';
 
-        const level =
-          score !== null
-            ? shortClass(score)
-            : null;
+        const dateStr = new Date(row.created_at?.replace(' ', 'T') + 'Z')
+          .toLocaleString([], { day: '2-digit', month: 'short', year: 'numeric' })
+          ?? row.created_at ?? '—';
 
-        const badge =
-          score !== null
+        const level = score ? shortClass(score) : '';
+        const badge = score
+          ? `<span class="badge badge-${level.toLowerCase().replace(' ', '-') }">${level}</span>`
+          : `<span class="status-cell">${escapeHtml(row.status || 'pending')}</span>`;
 
-            ? `
-              <span
-                class="badge badge-${
-                  level
-                    .toLowerCase()
-                    .replace(" ", "-")
-                }">
-
-                ${level}
-
-              </span>
-            `
-
-            : `
-              <span class="status-cell">
-                ${escapeHtml(
-                  row.status ||
-                  "pending"
-                )}
-              </span>
-            `;
-
-        tr.innerHTML = `
-
+        const rowEl = document.createElement('tr');
+        rowEl.innerHTML = `
+          <td>${dateStr}</td>
+          <td><div class="file-cell" title="${escapeHtml(row.file_name_1)}">${escapeHtml(row.file_name_1)}</div></td>
+          <td><div class="file-cell" title="${escapeHtml(row.file_name_2)}">${escapeHtml(row.file_name_2)}</div></td>
+          <td class="score-cell" style="color:${color}">${score ? score.toFixed(1) + '%' : '—'}</td>
+          <td>${badge}</td>
           <td>
-            ${date}
-          </td>
-
-          <td>
-
-            <div
-              class="file-cell"
-              title="${escapeHtml(
-                row.file_name_1
-              )}">
-
-              ${escapeHtml(
-                row.file_name_1
-              )}
-
+            <div class="history-actions">
+              ${row.status === 'completed' ? `<button class="table-action view" type="button">View</button> <a class="table-action" href="/api/report/${row.id}">PDF</a>` : ''}
+              <button class="table-action delete" type="button">Delete</button>
             </div>
+          </td>`;
+        // Attach handlers
+        rowEl.querySelector('.view')?.addEventListener('click', () => loadResults(row.id));
+        rowEl.querySelector('.delete')?.addEventListener('click', () => deleteHistory(row.id));
 
-          </td>
-
-          <td>
-
-            <div
-              class="file-cell"
-              title="${escapeHtml(
-                row.file_name_2
-              )}">
-
-              ${escapeHtml(
-                row.file_name_2
-              )}
-
-            </div>
-
-          </td>
-
-          <td
-            class="score-cell"
-            style="color:${color}">
-
-            ${
-              score !== null
-                ? score.toFixed(1) + "%"
-                : "—"
-            }
-
-          </td>
-
-          <td>
-            ${badge}
-          </td>
-
-          <td>
-
-            <div
-              class="history-actions">
-
-              ${
-                row.status === "completed"
-
-                  ? `
-
-                    <button
-                      class="table-action view"
-                      type="button">
-
-                      View
-
-                    </button>
-
-                    <a
-                      class="table-action"
-                      href="/api/report/${row.id}">
-
-                      PDF
-
-                    </a>
-                  `
-
-                  : ""
-              }
-
-              <button
-                class="table-action delete"
-                type="button">
-
-                Delete
-
-              </button>
-
-            </div>
-
-          </td>
-        `;
-
-        const viewButton =
-          tr.querySelector(
-            ".view"
-          );
-
-        if (viewButton) {
-
-          viewButton.addEventListener(
-            "click",
-            () => {
-              loadResults(row.id);
-            }
-          );
-        }
-
-        const deleteButton =
-          tr.querySelector(
-            ".delete"
-          );
-
-        if (deleteButton) {
-
-          deleteButton.addEventListener(
-            "click",
-            () => {
-              deleteHistory(row.id);
-            }
-          );
-        }
-
-        historyList.appendChild(
-          tr
-        );
+        list.appendChild(rowEl);
       });
-
-    } catch (error) {
-
-      historyList.innerHTML = `
-
-        <tr>
-
-          <td colspan="6">
-
-            <div class="table-empty">
-
-              <b>
-                History could not be loaded
-              </b>
-
-              <span>
-                Refresh and try again.
-              </span>
-
-            </div>
-
-          </td>
-
-        </tr>
-      `;
+    } catch {
+      list.innerHTML = `<tr><td colspan="6"><div class="table-empty"><b>History could not be loaded</b><span>Refresh and try again.</span></div></td></tr>`;
     }
   }
-
-  /* =========================================================
-     DELETE HISTORY
-     ========================================================= */
 
   async function deleteHistory(id) {
-
-    if (
-      !confirm(
-        "Delete this comparison from history?"
-      )
-    ) {
-      return;
-    }
-
+    if (!confirm('Delete this comparison from history?')) return;
     try {
-
-      /* Existing backend DELETE API */
-      const response =
-        await fetch(
-          `/api/history/${id}`,
-          {
-            method: "DELETE"
-          }
-        );
-
-      if (!response.ok) {
-        throw new Error(
-          "Could not delete comparison."
-        );
-      }
-
+      const response = await fetch(`/api/history/${id}`, { method: 'DELETE' });
+      if (!response.ok) throw new Error('Could not delete comparison.');
       await loadHistory();
-
-      showToast(
-        "Comparison deleted."
-      );
-
-    } catch (error) {
-
-      showToast(
-        error.message ||
-        "Could not delete comparison.",
-        "error"
-      );
+      showToast('Comparison deleted.');
+    } catch (err) {
+      showToast(err.message || 'Could not delete comparison.', 'error');
     }
   }
 
-  const refreshHistoryBtn =
-    el("refreshHistoryBtn");
-
-  if (refreshHistoryBtn) {
-
-    refreshHistoryBtn.addEventListener(
-      "click",
-      loadHistory
-    );
-  }
-
-  /* =========================================================
-     SYSTEM HEALTH
-     ========================================================= */
-
+  // ---- System Health Check ----
   async function checkHealth() {
-
-    const systemStatus =
-      el("systemStatus");
-
-    if (!systemStatus) return;
-
+    const statusEl = getEl('systemStatus');
+    if (!statusEl) return;
     try {
-
-      /* Existing health API */
-      const response =
-        await fetch(
-          "/api/health"
-        );
-
-      const data =
-        await response.json();
-
-      if (
-        data.status === "ok"
-      ) {
-
-        systemStatus.textContent =
-          "Operational";
-
-        systemStatus.style.color =
-          "var(--success)";
-
+      const response = await fetch('/api/health');
+      const data = await response.json();
+      if (data.status === 'ok') {
+        statusEl.textContent = 'Operational';
+        statusEl.style.color = 'var(--success)';
       } else {
-
-        systemStatus.textContent =
-          "Attention";
-
-        systemStatus.style.color =
-          "var(--warning)";
+        statusEl.textContent = 'Attention';
+        statusEl.style.color = 'var(--warning)';
       }
-
     } catch {
-
-      systemStatus.textContent =
-        "Offline";
-
-      systemStatus.style.color =
-        "var(--danger)";
+      statusEl.textContent = 'Offline';
+      statusEl.style.color = 'var(--danger)';
     }
   }
 
-  /* =========================================================
-     SETTINGS / HELP MODAL
-     ========================================================= */
-
+  // ---- Modal Management ----
   function openModal(type) {
-
-    const modalBackdrop =
-      el("modalBackdrop");
-
-    const modalBody =
-      el("modalBody");
-
-    if (
-      !modalBackdrop ||
-      !modalBody
-    ) {
-      return;
-    }
-
-    if (type === "settings") {
-
-      modalBody.innerHTML = `
-
-        <h3>
-          Workspace Settings
-        </h3>
-
-        <p>
-          Frontend presentation settings
-          for this session. Backend processing
-          configuration remains unchanged.
-        </p>
-
+    const { backdrop, body } = elements.modal;
+    if (!backdrop || !body) return;
+    if (type === 'settings') {
+      body.innerHTML = `
+        <h3>Workspace Settings</h3>
+        <p>Frontend presentation settings for this session. Backend processing remains unchanged.</p>
         <ul class="modal-list">
-
-          <li>
-            <b>Theme</b>
-            <br>
-            PlagiScope light SaaS theme
-          </li>
-
-          <li>
-            <b>Analysis</b>
-            <br>
-            Uses the existing backend
-            DSA + semantic scoring engine
-          </li>
-
-          <li>
-            <b>Upload limit</b>
-            <br>
-            10 MB per file
-          </li>
-
-          <li>
-            <b>Supported files</b>
-            <br>
-            PDF, DOCX, TXT, C, CPP,
-            PY, JAVA, JS, HTML, CSS
-          </li>
-
-        </ul>
-      `;
-
+          <li><b>Theme</b>: PlagiScope light SaaS theme</li>
+          <li><b>Analysis</b>: Uses the existing backend DSA + semantic scoring engine</li>
+          <li><b>Upload limit</b>: 10 MB per file</li>
+          <li><b>Supported files</b>: PDF, DOCX, TXT, C, CPP, PY, JAVA, JS, HTML, CSS</li>
+        </ul>`;
     } else {
-
-      modalBody.innerHTML = `
-
-        <h3>
-          How PlagiScope works
-        </h3>
-
-        <p>
-          Upload two submissions, run a
-          comparison, then inspect the
-          weighted similarity signals
-          and matched content.
-        </p>
-
+      body.innerHTML = `
+        <h3>How PlagiScope works</h3>
+        <p>Upload two submissions, run a comparison, then inspect the weighted similarity signals and matched content.</p>
         <ul class="modal-list">
-
-          <li>
-            <b>1. Upload</b>
-            <br>
-            Drag a file into either
-            submission card or browse.
-          </li>
-
-          <li>
-            <b>2. Compare</b>
-            <br>
-            The existing backend runs
-            preprocessing, DSA signals
-            and semantic similarity.
-          </li>
-
-          <li>
-            <b>3. Review</b>
-            <br>
-            Inspect the final score,
-            algorithm breakdown and
-            matched tokens.
-          </li>
-
-          <li>
-            <b>4. Report</b>
-            <br>
-            Download the existing PDF
-            report when comparison
-            is complete.
-          </li>
-
-        </ul>
-      `;
+          <li><b>1. Upload</b>: Drag or browse files</li>
+          <li><b>2. Compare</b>: Backend runs preprocessing, DSA signals, semantic similarity</li>
+          <li><b>3. Review</b>: Final score, breakdown, matched tokens</li>
+          <li><b>4. Report</b>: Download PDF report after comparison</li>
+        </ul>`;
     }
-
-    modalBackdrop.hidden = false;
+    backdrop.hidden = false;
   }
 
-  const settingsBtn =
-    el("settingsBtn");
+  getEl('modalClose')?.addEventListener('click', () => {
+    elements.modal.backdrop.hidden = true;
+  });
+  elements.modal.backdrop?.addEventListener('click', (e) => {
+    if (e.target === elements.modal.backdrop) {
+      elements.modal.backdrop.hidden = true;
+    }
+  });
 
-  const helpBtn =
-    el("helpBtn");
-
-  const modalClose =
-    el("modalClose");
-
-  const modalBackdrop =
-    el("modalBackdrop");
-
-  if (settingsBtn) {
-
-    settingsBtn.addEventListener(
-      "click",
-      () => openModal("settings")
-    );
-  }
-
-  if (helpBtn) {
-
-    helpBtn.addEventListener(
-      "click",
-      () => openModal("help")
-    );
-  }
-
-  if (modalClose) {
-
-    modalClose.addEventListener(
-      "click",
-      () => {
-        if (modalBackdrop) {
-          modalBackdrop.hidden =
-            true;
-        }
-      }
-    );
-  }
-
-  if (modalBackdrop) {
-
-    modalBackdrop.addEventListener(
-      "click",
-      (event) => {
-
-        if (
-          event.target ===
-          modalBackdrop
-        ) {
-          modalBackdrop.hidden =
-            true;
-        }
-      }
-    );
-  }
-
-  /* =========================================================
-     MOBILE SIDEBAR
-     ========================================================= */
-
-  const sidebar =
-    el("sidebar");
-
-  const overlay =
-    el("mobileOverlay");
-
-  const menuBtn =
-    el("menuBtn");
-
-  const closeSidebar =
-    el("closeSidebar");
-
-  if (menuBtn) {
-
-    menuBtn.addEventListener(
-      "click",
-      () => {
-
-        if (sidebar) {
-          sidebar.classList.add(
-            "open"
-          );
-        }
-
-        if (overlay) {
-          overlay.classList.add(
-            "show"
-          );
-        }
-      }
-    );
-  }
-
-  if (closeSidebar) {
-
-    closeSidebar.addEventListener(
-      "click",
-      () => {
-
-        if (sidebar) {
-          sidebar.classList.remove(
-            "open"
-          );
-        }
-
-        if (overlay) {
-          overlay.classList.remove(
-            "show"
-          );
-        }
-      }
-    );
-  }
-
-  if (overlay) {
-
-    overlay.addEventListener(
-      "click",
-      () => {
-
-        if (sidebar) {
-          sidebar.classList.remove(
-            "open"
-          );
-        }
-
-        overlay.classList.remove(
-          "show"
-        );
-      }
-    );
-  }
-
-  /* =========================================================
-     NAVIGATION
-     ========================================================= */
-
-  document
-    .querySelectorAll(
-      ".nav-item[href]"
-    )
-    .forEach((link) => {
-
-      link.addEventListener(
-        "click",
-        () => {
-
-          document
-            .querySelectorAll(
-              ".nav-item"
-            )
-            .forEach((item) => {
-
-              item.classList.remove(
-                "active"
-              );
-            });
-
-          link.classList.add(
-            "active"
-          );
-
-          if (sidebar) {
-            sidebar.classList.remove(
-              "open"
-            );
-          }
-
-          if (overlay) {
-            overlay.classList.remove(
-              "show"
-            );
-          }
-        }
-      );
+  // ---- Sidebar & Navigation ----
+  const sidebar = getEl('sidebar');
+  const overlay = getEl('mobileOverlay');
+  getEl('menuBtn')?.addEventListener('click', () => {
+    sidebar.classList.add('open');
+    overlay.classList.add('show');
+  });
+  getEl('closeSidebar')?.addEventListener('click', () => {
+    sidebar.classList.remove('open');
+    overlay.classList.remove('show');
+  });
+  overlay?.addEventListener('click', () => {
+    sidebar?.classList.remove('open');
+    overlay.classList.remove('show');
+  });
+  document.querySelectorAll('.nav-item[href]').forEach((link) => {
+    link.addEventListener('click', () => {
+      document.querySelectorAll('.nav-item').forEach((el) => el.classList.remove('active'));
+      link.classList.add('active');
+      sidebar?.classList.remove('open');
+      overlay?.classList.remove('show');
     });
+  });
 
-  /* =========================================================
-     INITIALIZATION
-     ========================================================= */
+  // ---- Initialize ----
+  function init() {
+    refreshActionButtons();
+    checkHealth();
+    loadHistory();
+  }
 
-  updateActionState();
+  init();
 
-  checkHealth();
-
-  loadHistory();
+  // Optional: add theme toggle, accessibility improvements, and other UX enhancements
 
 })();
