@@ -231,7 +231,23 @@ main.stage{
 .field-status.is-ok{ color:var(--teal); }
 .field-status.is-error{ color:var(--coral); }
 
+/* The file input sits as a full, invisible overlay directly on top of
+   the dropzone so the tap/click always lands on the real input element.
+   Triggering it via a JS-proxied .click() on a hidden input is what
+   breaks the picker on iOS Safari and many Android WebViews. */
+.dropzone-input{
+  position:absolute;
+  inset:0;
+  width:100%;
+  height:100%;
+  opacity:0;
+  cursor:pointer;
+  z-index:1;
+}
+
 .dz-meta{
+  position:relative;
+  z-index:2;
   display:flex; align-items:center; justify-content:space-between;
   gap:8px;
   background:var(--panel-3);
