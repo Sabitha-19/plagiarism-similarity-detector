@@ -95,10 +95,11 @@
 
   const setupDropzone = (zone, slot) => {
     const fileInput = el(`file${slot}`);
-    zone.addEventListener('click', (e) => {
-      if (e.target.closest('.file-remove')) return;
-      fileInput.click();
-    });
+    // No click-proxy here on purpose: fileInput is a full-coverage
+    // transparent overlay (see .dropzone-input in style.css), so taps
+    // and clicks land on the real <input type="file"> directly. That's
+    // the reliable way to open the picker on iOS Safari and Android
+    // WebViews — proxying via a hidden input's .click() is flaky there.
     zone.addEventListener('dragenter', e => { e.preventDefault(); zone.classList.add('is-dragover'); });
     zone.addEventListener('dragover', e => { e.preventDefault(); zone.classList.add('is-dragover'); });
     zone.addEventListener('dragleave', e => { e.preventDefault(); zone.classList.remove('is-dragover'); });
